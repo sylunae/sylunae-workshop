@@ -16,6 +16,8 @@
     "package:win": "npm run build:desktop && electron-builder --win nsis"
   },
   "dependencies": {
+    "@tiptap/core": "^3.32.0",
+    "@tiptap/pm": "^3.32.0",
     "better-sqlite3": "latest",
     "canvas-confetti": "^1.9.4",
     "date-fns": "^4.4.0",
