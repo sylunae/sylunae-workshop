@@ -76,6 +76,7 @@ const api: SylunaeAPI = {
     importFile: () => ipcRenderer.invoke('backup:import'),
   },
   system: {
+    themeReady: () => ipcRenderer.send('system:theme-ready'),
     getTheme: () => ipcRenderer.invoke('system:get-theme'),
     openExternal: (url) => ipcRenderer.invoke('system:open-external', url),
     findFavicon: (url) => ipcRenderer.invoke('system:find-favicon', url),

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useState, type CSSProperties } from 'react'
 import { Clock3 } from 'lucide-react'
 import { BirthdayNotifications } from './components/BirthdayNotifications'
 import { Sidebar } from './components/Sidebar'
@@ -50,7 +50,7 @@ export default function App() {
   const [musicView, setMusicView] = usePersistentState<'tracks' | 'albums'>('navigation.musicView', 'tracks')
   const [homeIntent, setHomeIntent] = useState<'new-note' | 'todos' | 'pomodoro' | 'clipboard' | null>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!snapshot) return
     const media = window.matchMedia('(prefers-color-scheme: dark)')
     const apply = () => {
@@ -64,11 +64,24 @@ export default function App() {
       document.documentElement.style.setProperty(themeDerivedCssVariables.primaryForeground, primaryForeground)
       document.documentElement.style.setProperty(themeDerivedCssVariables.destructiveForeground, destructiveForeground)
       document.documentElement.style.setProperty(themeDerivedCssVariables.sidebarPrimaryForeground, primaryForeground)
+      document.documentElement.style.colorScheme = effective
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', palette.bg)
+      try {
+        const palettes = Object.fromEntries((['light', 'dark'] as const).map((mode) => [mode,
+          Object.fromEntries(themeColorFields.map(({ key }) => [themeCssVariables[key], snapshot.settings.themePalettes[mode][key]])),
+        ]))
+        localStorage.setItem('sylunae:startup-theme', JSON.stringify({ mode: snapshot.settings.theme, palettes }))
+      } catch { /* Theme changes still work when browser storage is unavailable. */ }
+
     }
     apply()
     media.addEventListener('change', apply)
     return () => media.removeEventListener('change', apply)
   }, [snapshot?.settings.theme, snapshot?.settings.themePalettes])
+
+  useEffect(() => {
+    if (!loading) window.sylunae?.system.themeReady()
+  }, [loading])
 
   useEffect(() => {
     if (!snapshot) return

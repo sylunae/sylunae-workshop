@@ -642,6 +642,7 @@ export interface SylunaeAPI {
     importFile: () => Promise<string | null>
   }
   system: {
+    themeReady: () => void
     getTheme: () => Promise<'light' | 'dark'>
     openExternal: (url: string) => Promise<void>
     findFavicon: (url: string) => Promise<string | null>

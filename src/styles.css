@@ -16,8 +16,8 @@
 :root {
   font-family: 'Chill Round', 'DM Sans', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
   /* font-family: 'DM Sans', 'Noto Sans SC', 'Microsoft YaHei', sans-serif; */
-  color: #202020;
-  background: #ffffff;
+  color: var(--text);
+  background: var(--bg);
   font-synthesis: none;
   --bg: #ffffff;
   --surface: #ffffff;
@@ -77,8 +77,7 @@
 }
 
 :root[data-theme='dark'] {
-  color: #ededed;
-  background: #171717;
+  color-scheme: dark;
   --bg: #171717;
   --surface: #1f1f1f;
   --surface-2: #292929;

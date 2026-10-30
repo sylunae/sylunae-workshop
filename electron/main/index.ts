@@ -856,7 +856,8 @@ function createWindow(): void {
     height: 880,
     minWidth: 360,
     minHeight: 560,
-    backgroundColor: '#ffffff',
+    show: false,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#171717' : '#ffffff',
     icon: app.isPackaged ? undefined : fileURLToPath(new URL('../../build/icon.png', import.meta.url)),
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#00000000', symbolColor: '#6f6f6f', height: 42 },
@@ -1105,6 +1106,9 @@ function registerIpc(): void {
     })
     if (result.canceled || !result.filePaths[0]) return null
     return readFileSync(result.filePaths[0], 'utf8')
+  })
+  ipcMain.on('system:theme-ready', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.show()
   })
   ipcMain.handle('system:get-theme', () => nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
   ipcMain.handle('system:open-external', (_event, url: string) => {
