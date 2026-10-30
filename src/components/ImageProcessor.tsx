@@ -1,19 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import { Crop, Download, FileImage, FolderOpen, Plus, RotateCcw, RotateCw, Trash2, X } from 'lucide-react'
+import { Crop, Download, FileImage, FolderOpen, Check, Upload, RotateCcw, RotateCw, Trash2, X } from 'lucide-react'
 import { Button } from './ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
-import { Slider } from './ui/slider'
+import { Checkbox } from './ui/checkbox'
 import { Input } from './ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog'
-import { centeredCrop, encodeImage, outputName, type CropRect, type ImageEdits } from '../lib/imageProcessing'
+import type { ImageFolderSummary, ImageFolderOutput } from '../shared/types'
+import { centeredCrop, encodeImage, outputName, encodingQuality, type EncodingLevel, type CropRect, type ImageEdits } from '../lib/imageProcessing'
 
 interface SourceImage extends ImageEdits { id: string; file: File; url: string; width: number; height: number }
 interface EncodedImage { id: string; name: string; blob: Blob; url: string; width: number; height: number; originalSize: number }
-interface ResultImage extends EncodedImage { path?: string; saved: boolean; error?: string }
-interface WebDirectory {
-  name: string
-  getFileHandle: (name: string, options?: { create: boolean }) => Promise<{ createWritable: () => Promise<{ write: (blob: Blob) => Promise<void>; close: () => Promise<void> }> }>
-}
+type ResultImage = EncodedImage
 const sizeLabel = (bytes: number) => bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(2)} MB`
 const errorLabel = (error: unknown) => error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': Error: /, '') : '处理失败'
 
@@ -35,7 +32,11 @@ export function ImageProcessor() {
   const [items, setItems] = useState<SourceImage[]>([])
   const [activeId, setActiveId] = useState('')
   const [format, setFormat] = useState('image/webp')
-  const [quality, setQuality] = useState(82)
+  const [level, setLevel] = useState<EncodingLevel>('standard')
+  const quality = encodingQuality(level)
+  const [folder, setFolder] = useState<ImageFolderSummary | null>(null)
+  const [folderOutput, setFolderOutput] = useState<ImageFolderOutput | null>(null)
+  const [notice, setNotice] = useState('')
   const [cropping, setCropping] = useState(false)
   const [ratio, setRatio] = useState('free')
   const [preview, setPreview] = useState<{ key: string; images: EncodedImage[]; errors: string[] } | null>(null)
@@ -45,20 +46,16 @@ export function ImageProcessor() {
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
-  const [directory, setDirectory] = useState('')
-  const [webDirectory, setWebDirectory] = useState<WebDirectory | null>(null)
   const drag = useRef<{ x: number; y: number; previous: CropRect | null; mode: 'move' | 'draw' | 'resize'; corner?: string } | null>(null)
   const active = items.find((item) => item.id === activeId) ?? items[0]
-  const key = useMemo(() => JSON.stringify([items.map(({ id, crop, rotation }) => [id, crop, rotation]), format, quality]), [items, format, quality])
+  const key = useMemo(() => JSON.stringify([items.map(({ id, crop, rotation }) => [id, crop, rotation]), format, level]), [items, format, level])
   const currentPreview = preview?.key === key ? preview : null
   const activePreview = currentPreview?.images.find((item) => item.id === active?.id)
-  const webPicker = (window as Window & { showDirectoryPicker?: () => Promise<WebDirectory> }).showDirectoryPicker
   const makeUrl = (blob: Blob) => { const url = URL.createObjectURL(blob); urls.current.add(url); return url }
   const release = (url: string) => { URL.revokeObjectURL(url); urls.current.delete(url) }
 
   useEffect(() => {
     alive.current = true
-    if (window.sylunae) void window.sylunae.imageProcessing.getDirectory().then((path) => { if (alive.current) setDirectory(path) }).catch((reason) => { if (alive.current) setError(errorLabel(reason)) })
     return () => { alive.current = false; urls.current.forEach((url) => URL.revokeObjectURL(url)); urls.current.clear() }
   }, [])
 
@@ -67,6 +64,7 @@ export function ImageProcessor() {
   }, [results])
 
   useEffect(() => {
+    if (folder) return
     let cancelled = false
     const generated: string[] = []
     const timer = window.setTimeout(() => {
@@ -76,21 +74,26 @@ export function ImageProcessor() {
         for (const item of items) {
           if (cancelled) return
           try {
-            const encoded = await encodeImage(item.file, item, format, quality)
+            const encoded = await encodeImage(item.file, item, format, quality, level === 'original')
             if (cancelled) return
             const url = makeUrl(encoded.blob)
             generated.push(url)
-            images.push({ ...encoded, id: item.id, name: outputName(item.file.name, format), url, originalSize: item.file.size })
+            images.push({ ...encoded, id: item.id, name: outputName(item.file.name, level === 'original' && !item.crop && !item.rotation ? 'original' : format), url, originalSize: item.file.size })
           } catch (reason) { errors.push(`${item.file.name}：${errorLabel(reason)}`) }
         }
         if (!cancelled) setPreview({ key, images, errors })
       })()
     }, 300)
     return () => { cancelled = true; window.clearTimeout(timer); generated.forEach(release) }
-  }, [key])
+  }, [key, folder])
 
   const addFiles = async (files: File[]) => {
+    if (busy || loading) return
+    setFolder(null)
+    setFolderOutput(null)
+    setNotice('')
     setLoading(true)
+    if (files[0] && window.sylunae) void window.sylunae.imageProcessing.rememberImport(files[0]).catch(() => {})
     setError('')
     const next: SourceImage[] = []
     const failures: string[] = []
@@ -141,20 +144,48 @@ export function ImageProcessor() {
     }
     if (width >= 1 && height >= 1) patchActive({ crop: { x: end.x < anchor.x ? anchor.x - width : anchor.x, y: end.y < anchor.y ? anchor.y - height : anchor.y, width, height } })
   }
-  const pickDirectory = async () => {
+  const chooseFolder = async (recursive?: boolean) => {
+    if (!window.sylunae || busy || loading) return
+    setLoading(true)
+    setError('')
+    try {
+      const summary = recursive === undefined ? await window.sylunae.imageProcessing.pickFolder() : await window.sylunae.imageProcessing.scanFolder(recursive)
+      if (summary && alive.current) {
+        items.forEach((item) => release(item.url)); results.forEach((item) => release(item.url))
+        setItems([]); setResults([]); setViewResult(null); setCropping(false)
+        setFolder(summary); setFolderOutput(null); setNotice('')
+      }
+    } catch (reason) { setError(errorLabel(reason)) }
+    finally { setLoading(false) }
+  }
+  const downloadAll = async (images: EncodedImage[] = results) => {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    setNotice('')
     try {
       if (window.sylunae) {
-        const path = await window.sylunae.imageProcessing.pickDirectory()
-        if (path) setDirectory(path)
-      } else if (webPicker) {
-        const handle = await webPicker.call(window)
-        setWebDirectory(handle)
-        setDirectory(handle.name)
+        if (!await window.sylunae.imageProcessing.pickDirectory()) return
+        if (folder) {
+          const saved = await window.sylunae.imageProcessing.saveFolder()
+          setNotice(`已下载 ${saved.count} 张图片`)
+          setError(saved.errors.join('；'))
+        } else {
+          let count = 0
+          const failures: string[] = []
+          for (const image of images) {
+            try { await window.sylunae.imageProcessing.save(image.name, await image.blob.arrayBuffer()); count++ }
+            catch (reason) { failures.push(`${image.name}：${errorLabel(reason)}`) }
+          }
+          setNotice(`已下载 ${count} 张图片`)
+          setError(failures.join('；'))
+        }
+      } else {
+        for (const image of images) { download(image); await new Promise((resolve) => window.setTimeout(resolve, 150)) }
+        setNotice('已提交全部下载，请在浏览器下载列表中查看；如有提示，请允许下载多个文件。')
       }
-    } catch (reason) { if (!(reason instanceof DOMException && reason.name === 'AbortError')) setError(errorLabel(reason)) }
-  }
-  const openDirectory = async () => {
-    try { await window.sylunae?.imageProcessing.openDirectory() } catch (reason) { setError(errorLabel(reason)) }
+    } catch (reason) { setError(errorLabel(reason)) }
+    finally { if (alive.current) setBusy(false) }
   }
   const download = (item: EncodedImage) => {
     const anchor = document.createElement('a')
@@ -166,30 +197,12 @@ export function ImageProcessor() {
     if (!currentPreview?.images.length || busy) return
     setBusy(true)
     setError('')
+    setNotice('')
     const exported: ResultImage[] = []
     try {
       for (const [index, image] of currentPreview.images.entries()) {
         setProgress(`${index + 1} / ${currentPreview.images.length}`)
-        const result: ResultImage = { ...image, url: makeUrl(image.blob), saved: false }
-        try {
-          if (window.sylunae) {
-            result.path = await window.sylunae.imageProcessing.save(image.name, await image.blob.arrayBuffer())
-            result.name = result.path.split(/[\\/]/).pop() ?? image.name
-            result.saved = true
-          } else if (webDirectory) {
-            let name = image.name
-            let suffix = 1
-            while (true) {
-              try { await webDirectory.getFileHandle(name); name = image.name.replace(/(\.[^.]+)$/, ` (${suffix++})$1`) }
-              catch (reason) { if (reason instanceof DOMException && reason.name === 'NotFoundError') break; throw reason }
-            }
-            const writable = await (await webDirectory.getFileHandle(name, { create: true })).createWritable()
-            await writable.write(image.blob)
-            await writable.close()
-            result.name = name
-            result.saved = true
-          }
-        } catch (reason) { result.error = errorLabel(reason) }
+        const result: ResultImage = { ...image, url: makeUrl(image.blob) }
         exported.push(result)
       }
       if (!alive.current) { exported.forEach((item) => release(item.url)); return }
@@ -200,12 +213,16 @@ export function ImageProcessor() {
   }
 
   return <div className="tool-workspace image-processor">
-    <div className="panel-heading"><h2>图片处理</h2><Button onClick={() => input.current?.click()} disabled={busy || loading}><Plus size={16} />{loading ? '正在读取…' : '添加图片'}</Button></div>
+    <div className="panel-heading"><div><h2>图片处理器</h2><p>裁剪、旋转与压缩图片，批量生成需要的格式</p></div></div>
     <input ref={input} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files) }} />
     {error && <p className="image-processing-error" role="alert">{error}</p>}
-    <div className="image-tool-card" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!busy && !loading) void addFiles(Array.from(event.dataTransfer.files)) }}>
-      <div className="image-edit-area">
-        {!active ? <button className="image-dropzone" disabled={loading} onClick={() => input.current?.click()}><FileImage size={38} /><strong>选择或拖入图片</strong><span>可批量选择</span></button> : <>
+    {!active && !folder ? <div className="image-import">
+      <button className={`audio-editor-dropzone ${loading ? 'loading' : ''}`} disabled={loading} onClick={() => input.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files)) }}><span className="audio-editor-drop-icon"><FileImage size={30} /></span><strong>{loading ? '正在读取…' : '选择或拖入图片'}</strong><span>支持批量选择，文件只在本机处理</span><span className="audio-editor-file-action"><Upload size={14} />选择文件</span></button>
+      {window.sylunae && <Button variant="outline" disabled={loading} onClick={() => void chooseFolder()}><FolderOpen size={16} />选择文件夹批量处理</Button>}
+    </div> : <div className="audio-editor-shell" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!busy && !loading) void addFiles(Array.from(event.dataTransfer.files)) }}>
+      <div className="image-edit-area audio-editor-main">
+        <div className="audio-editor-filebar image-filebar"><span className="audio-editor-file-icon">{folder ? <FolderOpen size={19} /> : <FileImage size={19} />}</span><div><strong>{folder ? folder.path : active?.file.name}</strong><span>{folder ? `${folder.count} 张图片 · ${sizeLabel(folder.bytes)}` : `${items.length} 张图片 · ${sizeLabel(items.reduce((sum, item) => sum + item.file.size, 0))}`}</span></div><Button variant="outline" disabled={busy || loading} onClick={() => { if (folder) void chooseFolder(); else input.current?.click() }}><Upload size={15} />{folder ? '更换' : '选择图片'}</Button>{folder && <Button variant="outline" disabled={busy || loading} onClick={() => input.current?.click()}>选择图片</Button>}{window.sylunae && !folder && <Button variant="outline" disabled={busy || loading} onClick={() => void chooseFolder()}><FolderOpen size={15} />文件夹</Button>}</div>
+        {folder ? <div className="image-folder-summary"><FolderOpen size={42} /><h3>文件夹批量处理</h3><p>仅统计与批量转换，不加载图片预览</p><label className="image-recursive"><Checkbox checked={folder.recursive} disabled={busy || loading} onCheckedChange={(checked) => void chooseFolder(checked === true)} />包含子文件夹</label><div className="image-folder-stats"><div><span>图片数量</span><strong>{folder.count} 张</strong></div><div><span>原始体积</span><strong>{sizeLabel(folder.bytes)}</strong></div>{Object.entries(folder.formats).map(([name, count]) => <div key={name}><span>{name}</span><strong>{count} 张</strong></div>)}</div>{!folder.count && <p>文件夹中没有支持的图片，请尝试包含子文件夹或更换文件夹。</p>}</div> : active && <>
           <div className="image-source-list" aria-label="待处理图片">{items.map((item) => <div key={item.id} className={`image-source-item ${item.id === active?.id ? 'active' : ''}`}>
             <button disabled={busy} onClick={() => { setActiveId(item.id); setCropping(false); setRatio('free') }}><img src={item.url} alt="" /><span>{item.file.name}</span></button>
             <Button variant="ghost" size="icon" aria-label={`移除 ${item.file.name}`} disabled={busy} onClick={() => { release(item.url); setItems((previous) => previous.filter((value) => value.id !== item.id)); setCropping(false) }}><X size={14} /></Button>
@@ -241,17 +258,24 @@ export function ImageProcessor() {
             }} />)}<Button variant="ghost" onClick={() => patchActive({ crop: null })}>取消裁剪</Button></div>}
         </>}
       </div>
-      <div className="image-options">
-        <label>输出格式<Select value={format} onValueChange={setFormat} disabled={busy}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="image/webp">WebP</SelectItem><SelectItem value="image/jpeg">JPG · 白色背景</SelectItem><SelectItem value="image/png">PNG</SelectItem></SelectContent></Select></label>
-        <label>编码质量<output>{format === 'image/png' ? '无损' : `${quality}%`}</output><Slider aria-label="编码质量" min={20} max={100} step={1} value={[quality]} onValueChange={([value]) => setQuality(value)} disabled={busy || format === 'image/png'} /></label>
-        {items.length > 1 && <div className="image-batch-actions"><strong>批量旋转</strong><div><Button variant="outline" disabled={busy} onClick={() => rotate(-90, true)}>全部左转 90°</Button><Button variant="outline" disabled={busy} onClick={() => rotate(90, true)}>全部右转 90°</Button></div></div>}
-        <div className="image-output-directory"><strong>输出文件夹</strong><span>{directory || '浏览器下载'}</span><div>{(window.sylunae || webPicker) && <Button variant="outline" disabled={busy} onClick={() => void pickDirectory()}>更改位置</Button>}{window.sylunae && <Button variant="outline" disabled={busy || !directory} onClick={() => void openDirectory()}><FolderOpen size={16} />打开文件夹</Button>}</div></div>
-        <div className="image-output-summary" aria-live="polite"><span>{items.length} 张图片</span><strong>{currentPreview ? `预计输出 ${sizeLabel(currentPreview.images.reduce((sum, item) => sum + item.blob.size, 0))}` : items.length ? '正在计算大小…' : '尚未选择图片'}</strong>{currentPreview && <span>原图 {sizeLabel(items.reduce((sum, item) => sum + item.file.size, 0))}</span>}</div>
-        {currentPreview?.errors.map((message) => <p key={message} className="image-processing-error" role="alert">{message}</p>)}
-        <Button disabled={busy || loading || !currentPreview?.images.length} onClick={() => void exportImages()}><Download size={16} />{busy ? `正在输出 ${progress}` : window.sylunae || webDirectory ? `保存 ${currentPreview?.images.length ?? items.length} 张图片` : '生成输出结果'}</Button>
-      </div>
-    </div>
-    {results.length > 0 && <section ref={resultSection} className="image-results"><div className="panel-heading"><h3 aria-live="polite">输出结果 · {results.length}</h3><div>{window.sylunae && <Button variant="outline" onClick={() => void openDirectory()}><FolderOpen size={16} />打开文件夹</Button>}<Button variant="ghost" disabled={busy} onClick={() => { setViewResult(null); results.forEach((item) => release(item.url)); setResults([]) }}><Trash2 size={16} />清空结果</Button></div></div><div className="image-result-grid">{results.map((result) => <article className="image-result-card" key={result.id}><button onClick={() => setViewResult(result)}><img src={result.url} alt={result.name} /><strong>{result.name}</strong></button><span>{result.width} × {result.height} · {sizeLabel(result.blob.size)}</span><span className={result.error ? 'image-processing-error' : ''}>{result.error ?? (result.saved ? '已保存' : '待下载')}</span><Button variant="outline" onClick={() => download(result)}><Download size={15} />下载</Button></article>)}</div></section>}
-    <Dialog open={!!viewResult} onOpenChange={(open) => { if (!open) setViewResult(null) }}><DialogContent className="image-result-dialog" aria-describedby={undefined}><DialogHeader><DialogTitle>{viewResult?.name}</DialogTitle></DialogHeader>{viewResult && <><img src={viewResult.url} alt={viewResult.name} /><span>{viewResult.width} × {viewResult.height} · {sizeLabel(viewResult.blob.size)}</span><Button onClick={() => download(viewResult)}><Download size={16} />下载图片</Button></>}</DialogContent></Dialog>
+      <aside className="audio-editor-options image-options">
+        <div className="audio-editor-option-heading"><span><FileImage size={17} /></span><div><strong>图片调整</strong><p>{folder ? '应用于文件夹内的全部图片' : '调整预览后生成输出结果'}</p></div></div>
+        <label>输出格式<Select value={level === 'original' ? 'original' : format} onValueChange={(value) => { setFormat(value); setFolderOutput(null) }} disabled={busy || loading || level === 'original'}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{level === 'original' && <SelectItem value="original">保持原始图片</SelectItem>}<SelectItem value="image/webp">WebP</SelectItem><SelectItem value="image/jpeg">JPG · 白色背景</SelectItem><SelectItem value="image/png">PNG</SelectItem></SelectContent></Select></label>
+        <label>编码等级<Select value={level} disabled={busy || loading} onValueChange={(value) => { setLevel(value as EncodingLevel); setFolderOutput(null) }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="strong">强压缩</SelectItem><SelectItem value="standard">标准压缩</SelectItem><SelectItem value="original">原图</SelectItem></SelectContent></Select><span className="image-level-help">{level === 'strong' ? '优先减小体积，细节可能有所损失。PNG 保持无损，可选择 WebP 进一步减小体积。' : level === 'standard' ? '在不明显影响观感的前提下压缩体积。' : `保留原始文件；若裁剪或旋转，则按 ${format === 'image/jpeg' ? 'JPG' : format === 'image/png' ? 'PNG' : 'WebP'} 以最高质量重新编码。`}</span></label>
+        {!folder && items.length > 1 && <div className="image-batch-actions"><strong>批量旋转</strong><div><Button variant="outline" disabled={busy} onClick={() => rotate(-90, true)}>全部左转 90°</Button><Button variant="outline" disabled={busy} onClick={() => rotate(90, true)}>全部右转 90°</Button></div></div>}
+        <div className="image-output-summary" aria-live="polite"><span>{folder?.count ?? items.length} 张图片</span><strong>{folder ? folderOutput ? `输出 ${sizeLabel(folderOutput.bytes)}` : '准备批量处理' : (currentPreview ? `预计输出 ${sizeLabel(currentPreview.images.reduce((sum, item) => sum + item.blob.size, 0))}` : items.length ? '正在计算大小…' : '尚未选择图片')}</strong>{!folder && currentPreview && <span>原图 {sizeLabel(items.reduce((sum, item) => sum + item.file.size, 0))}</span>}</div>
+        {!folder && currentPreview?.errors.map((message) => <p key={message} className="image-processing-error" role="alert">{message}</p>)}
+        <Button disabled={busy || loading || (folder ? !folder.count : !currentPreview?.images.length)} onClick={() => {
+          if (!folder) { void exportImages(); return }
+          setBusy(true); setError(''); setFolderOutput(null)
+          void window.sylunae!.imageProcessing.processFolder(format, level).then((output) => { if (alive.current) setFolderOutput(output) }).catch((reason) => setError(errorLabel(reason))).finally(() => { if (alive.current) setBusy(false) })
+        }}><FileImage size={16} />{busy ? `正在处理 ${progress}` : '生成输出结果'}</Button>
+      </aside>
+    </div>}
+    {folder && folderOutput && <section className="image-results"><div className="panel-heading"><h3>输出结果 · {folderOutput.count}</h3><Button disabled={busy || !folderOutput.count} onClick={() => void downloadAll()}><Download size={16} />一键下载全部结果</Button></div><p>共 {folderOutput.count} 张 · {sizeLabel(folderOutput.bytes)}</p>{folderOutput.errors.map((message) => <p className="image-processing-error" key={message}>{message}</p>)}</section>}
+    {!folder && results.length > 0 && <section ref={resultSection} className="image-results"><div className="panel-heading"><h3 aria-live="polite">输出结果 · {results.length}</h3><div><Button disabled={busy} onClick={() => void downloadAll()}><Download size={16} />一键下载全部结果</Button><Button variant="ghost" disabled={busy} onClick={() => { setViewResult(null); results.forEach((item) => release(item.url)); setResults([]) }}><Trash2 size={16} />清空结果</Button></div></div><div className="image-result-grid">{results.map((result) => <article className="image-result-card" key={result.id}><button onClick={() => setViewResult(result)}><img src={result.url} alt={result.name} /><strong>{result.name}</strong></button><span>{result.width} × {result.height} · {sizeLabel(result.blob.size)}</span><span>已生成 · 可下载</span><Button variant="outline" disabled={busy} onClick={() => void downloadAll([result])}><Download size={15} />下载</Button></article>)}</div></section>}
+    {notice && <p role="status">{notice}</p>}
+    <div className="privacy-note"><Check size={16} />图片处理均在设备本地完成，不会上传文件。</div>
+    <Dialog open={!!viewResult} onOpenChange={(open) => { if (!open) setViewResult(null) }}><DialogContent className="image-result-dialog" aria-describedby={undefined}><DialogHeader><DialogTitle>{viewResult?.name}</DialogTitle></DialogHeader>{viewResult && <><img src={viewResult.url} alt={viewResult.name} /><span>{viewResult.width} × {viewResult.height} · {sizeLabel(viewResult.blob.size)}</span><Button disabled={busy} onClick={() => void downloadAll([viewResult])}><Download size={16} />下载图片</Button></>}</DialogContent></Dialog>
   </div>
 }

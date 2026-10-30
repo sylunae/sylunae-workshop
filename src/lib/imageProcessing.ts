@@ -1,3 +1,6 @@
+export type EncodingLevel = 'strong' | 'standard' | 'original'
+export const encodingQuality = (level: EncodingLevel) => level === 'strong' ? 45 : level === 'standard' ? 82 : 100
+
 export interface CropRect { x: number; y: number; width: number; height: number }
 export interface ImageEdits { rotation: number; crop: CropRect | null }
 
@@ -13,8 +16,13 @@ export function outputDimensions(width: number, height: number, edits: ImageEdit
   return { width: Math.max(1, Math.round(swapped ? crop.height : crop.width)), height: Math.max(1, Math.round(swapped ? crop.width : crop.height)) }
 }
 
-export async function encodeImage(file: File, edits: ImageEdits, format: string, quality: number) {
+export async function encodeImage(file: File, edits: ImageEdits, format: string, quality: number, original = false) {
   const bitmap = await createImageBitmap(file)
+  if (original && !edits.crop && edits.rotation === 0) {
+    const size = { width: bitmap.width, height: bitmap.height }
+    bitmap.close()
+    return { blob: file as Blob, ...size }
+  }
   const canvas = document.createElement('canvas')
   try {
     const size = outputDimensions(bitmap.width, bitmap.height, edits)
@@ -40,5 +48,6 @@ export async function encodeImage(file: File, edits: ImageEdits, format: string,
 }
 
 export function outputName(name: string, format: string) {
+  if (format === 'original') return name
   return `${name.replace(/\.[^.]+$/, '')}-处理.${format === 'image/jpeg' ? 'jpg' : format.split('/')[1]}`
 }

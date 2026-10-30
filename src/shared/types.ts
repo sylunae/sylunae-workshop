@@ -583,9 +583,17 @@ export interface PartialBackupEnvelope {
   payload: unknown
 }
 
+export interface ImageFolderSummary { path: string; count: number; bytes: number; formats: Record<string, number>; recursive: boolean }
+export interface ImageFolderOutput { count: number; bytes: number; errors: string[] }
+
 export interface SylunaeAPI {
   platform: 'electron'
   imageProcessing: {
+    rememberImport: (file: File) => Promise<void>
+    pickFolder: () => Promise<ImageFolderSummary | null>
+    scanFolder: (recursive: boolean) => Promise<ImageFolderSummary>
+    processFolder: (format: string, level: string) => Promise<ImageFolderOutput>
+    saveFolder: () => Promise<{ count: number; errors: string[] }>
     getDirectory: () => Promise<string>
     pickDirectory: () => Promise<string | null>
     openDirectory: () => Promise<void>

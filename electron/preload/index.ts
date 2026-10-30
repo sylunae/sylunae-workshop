@@ -1,9 +1,14 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { AppSnapshot, AppSnapshotPatch, ImageScanProgress, MediaToolsProgress, MusicImportProgress, ResourceDownloadProgress, SylunaeAPI } from '../../src/shared/types'
 
 const api: SylunaeAPI = {
   platform: 'electron',
   imageProcessing: {
+    rememberImport: (file) => ipcRenderer.invoke('image-processing:remember-import', webUtils.getPathForFile(file)),
+    pickFolder: () => ipcRenderer.invoke('image-processing:pick-folder'),
+    scanFolder: (recursive) => ipcRenderer.invoke('image-processing:scan-folder', recursive),
+    processFolder: (format, level) => ipcRenderer.invoke('image-processing:process-folder', format, level),
+    saveFolder: () => ipcRenderer.invoke('image-processing:save-folder'),
     getDirectory: () => ipcRenderer.invoke('image-processing:get-directory'),
     pickDirectory: () => ipcRenderer.invoke('image-processing:pick-directory'),
     openDirectory: () => ipcRenderer.invoke('image-processing:open-directory'),

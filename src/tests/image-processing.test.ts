@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { centeredCrop, outputDimensions, outputName } from '../lib/imageProcessing'
+import { describe, expect, it, vi } from 'vitest'
+import { centeredCrop, outputDimensions, outputName, encodeImage } from '../lib/imageProcessing'
 
 describe('image processing geometry', () => {
   it('fits portrait and landscape presets inside the original image', () => {
@@ -20,6 +20,18 @@ describe('image processing geometry', () => {
     expect(outputDimensions(1200, 800, { crop, rotation: 270 })).toEqual({ width: 300, height: 600 })
     expect(outputDimensions(1200, 800, { crop, rotation: 180 })).toEqual({ width: 600, height: 300 })
     expect(outputDimensions(1200, 800, { crop: null, rotation: 0 })).toEqual({ width: 1200, height: 800 })
+  })
+  it('returns the exact original file without re-encoding when no edits are applied', async () => {
+    const close = vi.fn()
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 20, height: 30, close })))
+    try {
+      const file = new File(['original bytes'], 'photo.png', { type: 'image/png' })
+      const output = await encodeImage(file, { crop: null, rotation: 0 }, 'image/webp', 100, true)
+      expect(output.blob).toBe(file)
+      expect(output).toMatchObject({ width: 20, height: 30 })
+      expect(outputName(file.name, 'original')).toBe('photo.png')
+      expect(close).toHaveBeenCalledOnce()
+    } finally { vi.unstubAllGlobals() }
   })
   it('uses a distinct output name and preserves names containing dots', () => {
     expect(outputName('旅行.原图.png', 'image/jpeg')).toBe('旅行.原图-处理.jpg')
