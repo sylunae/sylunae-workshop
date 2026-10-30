@@ -48,9 +48,62 @@ describe('desktop section storage', () => {
     const verification = new Database(path, { readonly: true })
     const rows = verification.prepare('SELECT section, payload FROM app_state_sections').all() as Array<{ section: string; payload: string }>
     expect(rows).toHaveLength(17)
-    expect(JSON.parse(rows.find((row) => row.section === 'notes')!.payload)).toEqual(notes)
+    expect(database.loadSnapshot().notes).toEqual(notes)
+    expect(JSON.parse(rows.find((row) => row.section === 'notes')!.payload)).toEqual(snapshot.notes)
     expect(JSON.parse(rows.find((row) => row.section === 'tracks')!.payload)).toEqual(snapshot.tracks)
     expect((verification.prepare('SELECT COUNT(*) AS count FROM app_state').get() as { count: number }).count).toBe(0)
     verification.close()
+  })
+})
+
+
+describe('per-note desktop writes', () => {
+  it('deduplicates image bytes, preserves them on restart and keeps text writes small', async () => {
+    testEnvironment.dataDirectory = mkdtempSync(join(tmpdir(), 'sylunae-assets-'))
+    vi.resetModules()
+    const database = await import('../../electron/main/database')
+    try {
+      const bytes = new Uint8Array([255, 216, 1, 2, 3, 255, 217])
+      const id = database.putNoteAsset(bytes, 'image/jpeg')
+      expect(database.putNoteAsset(bytes, 'image/jpeg')).toBe(id)
+      const snapshot = createDefaultSnapshot()
+      snapshot.notes = [{ id: 'image-note', title: 'Image', content: { type: 'doc', content: [
+        { type: 'image', attrs: { src: `sylunae-note-asset:${id}` } },
+      ] }, folderId: null, tags: [], pinned: false, deletedAt: null, createdAt: 'now', updatedAt: 'now' }]
+      database.replaceSnapshot(snapshot)
+      database.saveSnapshotPatch({ noteChanges: { put: [{ ...snapshot.notes[0], title: 'Edited' }], delete: [] } })
+      database.closeDatabase()
+      expect(Array.from(database.getNoteAsset(id)!.bytes)).toEqual(Array.from(bytes))
+      expect(database.loadSnapshot().notes[0].content).toEqual(snapshot.notes[0].content)
+      const verification = new Database(join(testEnvironment.dataDirectory, 'sylunae-workshop.sqlite'), { readonly: true })
+      try {
+        expect(verification.prepare('SELECT COUNT(*) AS count FROM note_assets').get()).toEqual({ count: 1 })
+        expect((verification.prepare('SELECT length(payload) AS size FROM notes').get() as { size: number }).size).toBeLessThan(1000)
+      } finally { verification.close() }
+    } finally {
+      database.closeDatabase()
+      rmSync(testEnvironment.dataDirectory, { recursive: true, force: true })
+    }
+  })
+
+  it('updates and deletes only the requested rows', async () => {
+    testEnvironment.dataDirectory = mkdtempSync(join(tmpdir(), 'sylunae-note-'))
+    vi.resetModules()
+    const database = await import('../../electron/main/database')
+    const snapshot = createDefaultSnapshot()
+    const note = { id: 'a', title: 'A', content: { type: 'doc' }, folderId: null, tags: [], pinned: false, deletedAt: null, createdAt: 'now', updatedAt: 'now' }
+    snapshot.notes = [note, { ...note, id: 'b' }]
+    try {
+      database.replaceSnapshot(snapshot)
+      database.saveSnapshotPatch({ noteChanges: { put: [{ ...note, title: 'changed' }], delete: [] } })
+      expect(database.loadSnapshot().notes.map((n) => n.title)).toEqual(['changed', 'A'])
+      database.saveSnapshotPatch({ noteChanges: { put: [], delete: ['a'] } })
+      expect(database.loadSnapshot().notes.map((n) => n.id)).toEqual(['b'])
+      database.closeDatabase()
+      expect(database.loadSnapshot().notes.map((n) => n.id)).toEqual(['b'])
+    } finally {
+      database.closeDatabase()
+      rmSync(testEnvironment.dataDirectory, { recursive: true, force: true })
+    }
   })
 })

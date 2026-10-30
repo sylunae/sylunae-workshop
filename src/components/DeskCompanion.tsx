@@ -1,3 +1,4 @@
+import { storageKey } from '../lib/storageEnvironment'
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import type { DeskCompanionSettings } from '../shared/types'
 import { DESK_COMPANION_PRESETS } from '../shared/deskCompanionPresets'
@@ -38,7 +39,7 @@ function applyAnchors(position: Position, size: number): Position {
 
 function initialPosition(size: number): Position {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(POSITION_KEY) ?? 'null') as Partial<Position> | null
+    const stored = JSON.parse(window.localStorage.getItem(storageKey(POSITION_KEY)) ?? 'null') as Partial<Position> | null
     if (stored && Number.isFinite(stored.x) && Number.isFinite(stored.y)) {
       const maxX = Math.max(0, window.innerWidth - size)
       const maxY = Math.max(0, window.innerHeight - size)
@@ -249,7 +250,7 @@ export function DeskCompanion({ settings }: { settings: DeskCompanionSettings })
       const horizontalAnchor: HorizontalAnchor = centerX < window.innerWidth / 4 ? 'left' : centerX > window.innerWidth * .75 ? 'right' : 'free'
       const verticalAnchor: VerticalAnchor = centerY < window.innerHeight / 4 ? 'top' : centerY > window.innerHeight * .75 ? 'bottom' : 'free'
       const snapped = applyAnchors({ x: horizontal, y: vertical, horizontal: horizontalAnchor, vertical: verticalAnchor }, size)
-      window.localStorage.setItem(POSITION_KEY, JSON.stringify(snapped))
+      window.localStorage.setItem(storageKey(POSITION_KEY), JSON.stringify(snapped))
       return snapped
     })
     showReaction('settling', '稳稳落地！')

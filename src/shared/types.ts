@@ -345,6 +345,7 @@ export interface NoteFolder {
 }
 
 export interface Note {
+  preview?: string
   id: string
   title: string
   content: JSONContent
@@ -555,7 +556,7 @@ export interface AppSnapshot {
 }
 
 /** Top-level persistence unit. Updates must contain only the domains that changed. */
-export type AppSnapshotPatch = { [Key in keyof AppSnapshot]?: AppSnapshot[Key] }
+export type AppSnapshotPatch = { [Key in keyof AppSnapshot]?: AppSnapshot[Key] } & { noteChanges?: { put: Note[]; delete: string[] } }
 
 export interface BackupSummary {
   notes: number
@@ -591,6 +592,8 @@ export interface SylunaeAPI {
     save: (name: string, bytes: ArrayBuffer) => Promise<string>
   }
   storage: {
+    putNoteAsset: (bytes: Uint8Array, mime: string) => Promise<string>
+    getNoteAsset: (id: string) => Promise<{ bytes: Uint8Array; mime: string } | null>
     load: () => Promise<AppSnapshot>
     save: (patch: AppSnapshotPatch) => Promise<void>
     replace: (snapshot: AppSnapshot) => Promise<void>

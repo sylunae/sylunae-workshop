@@ -2395,3 +2395,8 @@ input[type='range'] { height: 3px; accent-color: var(--brand); }
     @apply font-sans;
   }
 }
+
+/* Bound notebook list DOM size even when the library has tens of thousands of notes. */
+.virtual-note-list { flex: 1; min-height: 0; overflow-anchor: none; }
+.virtual-note-list > button { height: var(--note-row-height); min-height: var(--note-row-height); box-sizing: border-box; }
+.virtual-note-list > div { flex-shrink: 0; }

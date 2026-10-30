@@ -215,8 +215,8 @@ describe('note updates', () => {
     updatedAt: '2026-01-01T00:00:00.000Z',
   }
 
-  it('keeps the original note and timestamp for equivalent editor content', () => {
-    const result = applyNotePatch(note, { content: structuredClone(note.content) }, '2026-02-01T00:00:00.000Z')
+  it('keeps the original note and timestamp for the same content reference', () => {
+    const result = applyNotePatch(note, { content: note.content }, '2026-02-01T00:00:00.000Z')
     expect(result).toBe(note)
     expect(result.updatedAt).toBe('2026-01-01T00:00:00.000Z')
   })

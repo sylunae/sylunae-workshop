@@ -10,7 +10,7 @@ interface AppStoreValue {
   error: string
   update: (recipe: (current: AppSnapshot) => AppSnapshot) => void
   replace: (snapshot: AppSnapshot) => Promise<void>
-  flush: () => Promise<void>
+  flush: () => Promise<AppSnapshot | null>
 }
 
 const AppStoreContext = createContext<AppStoreValue | null>(null)
@@ -71,15 +71,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const flush = useCallback(async () => {
     await drainPending()
     await saveQueue.current
+    return latest.current
   }, [drainPending])
 
   const replace = useCallback(async (value: AppSnapshot) => {
     if (timer.current) { clearTimeout(timer.current); timer.current = null }
     pendingPatch.current = {}
     await saveQueue.current
-    await repository.replace(value)
-    latest.current = value
-    setSnapshot(value)
+    const persisted = await repository.replace(value)
+    latest.current = persisted
+    setSnapshot(persisted)
   }, [])
 
   useEffect(() => () => {

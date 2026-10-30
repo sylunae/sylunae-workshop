@@ -1,13 +1,15 @@
+import { externalizeNoteImages } from './noteAssets'
+import { applicationDatabaseName } from '../lib/storageEnvironment'
 import Dexie, { type EntityTable } from 'dexie'
 import { createDefaultSnapshot } from '../shared/defaults'
-import type { AppSnapshot, AppSnapshotPatch, DeskCompanionCharacter, DeskCompanionSettings, HomeQuickActionId } from '../shared/types'
+import type { AppSnapshot, AppSnapshotPatch, DeskCompanionCharacter, DeskCompanionSettings, HomeQuickActionId, Note } from '../shared/types'
 import { migrateDefaultThemePalettes } from '../shared/theme'
 import { reconcileMusicLibrary } from '../music/albums'
 import { normalizeImageLibrary } from '../images/library'
 import { normalizeGoal } from '../goals/tracking'
 import { normalizeBirthdays } from '../birthdays/reminders'
 import { normalizeCountdowns } from '../countdowns/normalize'
-import { joinSnapshotSections, snapshotPatchEntries, splitSnapshot, type SnapshotSectionKey } from './snapshotSections'
+import { joinSnapshotSections, snapshotPatchEntries, splitSnapshot, type SnapshotSectionKey, snapshotSectionKeys } from './snapshotSections'
 
 interface StateRow { id: number; snapshot: AppSnapshot }
 interface BangumiCoverRow { url: string; blob: Blob; cachedAt: string }
@@ -17,11 +19,17 @@ class SylunaeDatabase extends Dexie {
   state!: EntityTable<StateRow, 'id'>
   bangumiCovers!: EntityTable<BangumiCoverRow, 'url'>
   sections!: EntityTable<SectionRow, 'key'>
+  notes!: EntityTable<Note, 'id'>
   constructor() {
-    super('siyue-workshop')
+    super(applicationDatabaseName)
     this.version(1).stores({ state: 'id' })
     this.version(2).stores({ state: 'id', bangumiCovers: 'url, cachedAt' })
     this.version(3).stores({ state: 'id', bangumiCovers: 'url, cachedAt', sections: 'key' })
+    this.version(4).stores({ state: 'id', bangumiCovers: 'url, cachedAt', sections: 'key', notes: 'id' }).upgrade(async (tx) => {
+      const old = await tx.table('sections').get('notes')
+      if (old) await tx.table('notes').bulkPut(old.value)
+      // Keep the old section as a rollback backup; version 4 reads the rows.
+    })
   }
 }
 
@@ -62,7 +70,8 @@ async function ensureSectionStorage(): Promise<void> {
   if (await db.sections.count() > 0) return
   const legacy = await db.state.get(1)
   const snapshot = normalize(legacy?.snapshot)
-  await db.transaction('rw', db.sections, db.state, async () => {
+  await db.transaction('rw', db.sections, db.state, db.notes, async () => {
+    await db.notes.bulkPut(snapshot.notes)
     await db.sections.bulkPut(splitSnapshot(snapshot))
     await db.state.clear()
   })
@@ -136,32 +145,64 @@ function normalize(snapshot: Partial<AppSnapshot> | undefined): AppSnapshot {
   }
 }
 
+let savedNotes = new Map<string, Note>()
+
 export const repository = {
   isDesktop: Boolean(window.sylunae),
   async load(): Promise<AppSnapshot> {
-    if (window.sylunae) return normalize(await window.sylunae.storage.load())
-    await ensureSectionStorage()
-    return normalize(joinSnapshotSections(await db.sections.toArray()))
-  },
-  async save(patch: AppSnapshotPatch): Promise<void> {
-    const entries = snapshotPatchEntries(patch)
-    if (entries.length === 0) return
-    if (window.sylunae) await window.sylunae.storage.save(patch)
+    let snapshot: AppSnapshot
+    if (window.sylunae) snapshot = normalize(await window.sylunae.storage.load())
     else {
       await ensureSectionStorage()
-      await db.sections.bulkPut(entries)
+      snapshot = normalize({ ...joinSnapshotSections((await db.sections.bulkGet(snapshotSectionKeys.filter((key) => key !== 'notes'))).filter((row): row is SectionRow => Boolean(row))), notes: await db.notes.toArray() })
     }
+    const migrated = await externalizeNoteImages(snapshot.notes)
+    const changed = migrated.filter((note, index) => note !== snapshot.notes[index])
+    // Assets are committed first; only then replace references. Failure leaves old notes intact.
+    if (changed.length) {
+      if (window.sylunae) await window.sylunae.storage.save({ noteChanges: { put: changed, delete: [] } })
+      else await db.notes.bulkPut(changed)
+    }
+    snapshot = { ...snapshot, notes: migrated }
+    savedNotes = new Map(snapshot.notes.map((note) => [note.id, note]))
+    return snapshot
   },
-  async replace(snapshot: AppSnapshot): Promise<void> {
+  async save(patch: AppSnapshotPatch): Promise<void> {
+    const { notes, ...sections } = patch
+    const nextNotes = notes ? new Map(notes.map((note) => [note.id, note])) : savedNotes
+    const noteChanges = notes ? {
+      put: notes.filter((note) => savedNotes.get(note.id) !== note),
+      delete: [...savedNotes.keys()].filter((id) => !nextNotes.has(id)),
+    } : undefined
+    const entries = snapshotPatchEntries(sections)
+    if (window.sylunae) await window.sylunae.storage.save({ ...sections, noteChanges })
+    else {
+      await ensureSectionStorage()
+      await db.transaction('rw', db.sections, db.notes, async () => {
+        await db.sections.bulkPut(entries)
+        if (noteChanges) {
+          await db.notes.bulkPut(noteChanges.put)
+          await db.notes.bulkDelete(noteChanges.delete)
+        }
+      })
+    }
+    savedNotes = nextNotes
+  },
+  async replace(snapshot: AppSnapshot): Promise<AppSnapshot> {
     const safe = normalize(snapshot)
+    safe.notes = await externalizeNoteImages(safe.notes)
     if (window.sylunae) await window.sylunae.storage.replace(safe)
     else {
       await ensureSectionStorage()
-      await db.transaction('rw', db.sections, async () => {
+      await db.transaction('rw', db.sections, db.notes, async () => {
+        await db.notes.clear()
+        await db.notes.bulkPut(safe.notes)
         await db.sections.clear()
-        await db.sections.bulkPut(splitSnapshot(safe))
+        await db.sections.bulkPut(splitSnapshot({ ...safe, notes: [] }))
       })
     }
+    savedNotes = new Map(safe.notes.map((note) => [note.id, note]))
+    return safe
   },
 }
 

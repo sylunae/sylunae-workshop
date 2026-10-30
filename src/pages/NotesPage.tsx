@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { VirtualNoteList } from '../components/VirtualNoteList'
+import { noteImageDataUrl } from '../data/noteAssets'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { Markdown } from '@tiptap/markdown'
 import StarterKit from '@tiptap/starter-kit'
@@ -22,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../components/ui/sheet'
 import { MarkdownPaste } from '../editor/markdownPaste'
+import { createNoteContentSaver } from '../editor/noteContentSaver'
 import { applyNotePatch } from '../editor/notePatch'
 import { applyNoteLink } from '../editor/noteLink'
 import { LinkBookmark } from '../editor/linkBookmark'
@@ -34,8 +37,11 @@ const NoteDetailsSummary = DetailsSummary.extend({ content: 'inline*' })
 
 export function NotesPage({ createOnOpen = false }: { createOnOpen?: boolean }) {
   const { snapshot, update } = useAppStore()
-  const notes = snapshot?.notes || []
-  const folders = snapshot?.folders || []
+  if (!snapshot) return null
+  return <NotesWorkspace notes={snapshot.notes} folders={snapshot.folders} update={update} createOnOpen={createOnOpen} />
+}
+
+const NotesWorkspace = memo(function NotesWorkspace({ notes, folders, update, createOnOpen }: { notes: Note[]; folders: import('../shared/types').NoteFolder[]; update: ReturnType<typeof useAppStore>['update']; createOnOpen: boolean }) {
   const [folderFilter, setFolderFilter] = useState<FolderFilter>('all')
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = usePersistentState<string | null>('navigation.notesSelectedId', null)
@@ -43,16 +49,26 @@ export function NotesPage({ createOnOpen = false }: { createOnOpen?: boolean }) 
   const [browserOpen, setBrowserOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Note | null>(null)
   const createdOnOpen = useRef(false)
-  const selected = notes.find((note) => note.id === selectedId) || null
+  const noteById = useMemo(() => new Map(notes.map((note) => [note.id, note])), [notes])
+  const selected = selectedId ? noteById.get(selectedId) ?? null : null
+  const counts = useMemo(() => {
+    const result = { all: 0, trash: 0, folders: new Map<string, number>() }
+    for (const note of notes) {
+      if (note.deletedAt) { result.trash++; continue }
+      result.all++
+      if (note.folderId) result.folders.set(note.folderId, (result.folders.get(note.folderId) ?? 0) + 1)
+    }
+    return result
+  }, [notes])
 
   const visibleNotes = useMemo(() => {
     const clean = query.trim().toLowerCase()
     return notes.filter((note) => {
       const trashMatch = folderFilter === 'trash' ? Boolean(note.deletedAt) : !note.deletedAt
       const folderMatch = folderFilter === 'all' || folderFilter === 'trash' || note.folderId === folderFilter
-      const textMatch = !clean || `${note.title} ${extractText(note.content)}`.toLowerCase().includes(clean)
+      const textMatch = !clean || `${note.title.toLowerCase()} ${noteSearchText(note)}`.includes(clean)
       return trashMatch && folderMatch && textMatch
-    }).sort((a, b) => Number(b.pinned) - Number(a.pinned) || new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    }).sort((a, b) => Number(b.pinned) - Number(a.pinned) || noteTime(b) - noteTime(a))
   }, [notes, folderFilter, query])
 
   useEffect(() => {
@@ -60,7 +76,7 @@ export function NotesPage({ createOnOpen = false }: { createOnOpen?: boolean }) 
     else if (!selectedId && visibleNotes[0]) setSelectedId(visibleNotes[0].id)
   }, [visibleNotes, selectedId])
 
-  const saveNote = (id: string, patch: Partial<Note>) => update((state) => {
+  const saveNote = useCallback((id: string, patch: Partial<Note>) => update((state) => {
     const index = state.notes.findIndex((note) => note.id === id)
     if (index < 0) return state
     const nextNote = applyNotePatch(state.notes[index], patch, nowIso())
@@ -68,7 +84,7 @@ export function NotesPage({ createOnOpen = false }: { createOnOpen?: boolean }) 
     const nextNotes = [...state.notes]
     nextNotes[index] = nextNote
     return { ...state, notes: nextNotes }
-  })
+  }), [update])
   const addNote = () => {
     const now = nowIso()
     const note: Note = { id: newId(), title: '无标题笔记', content: { type: 'doc', content: [{ type: 'paragraph' }] }, folderId: folderFilter !== 'all' && folderFilter !== 'trash' ? folderFilter : null, tags: [], pinned: false, deletedAt: null, createdAt: now, updatedAt: now }
@@ -85,6 +101,7 @@ export function NotesPage({ createOnOpen = false }: { createOnOpen?: boolean }) 
     update((state) => ({ ...state, folders: [...state.folders, { id, name, createdAt: now, updatedAt: now }] }))
     setFolderFilter(id)
   }
+  const selectFromBrowser = useCallback((id: string) => { setSelectedId(id); setBrowserOpen(false) }, [setSelectedId])
   const moveToTrash = (note: Note) => saveNote(note.id, { deletedAt: nowIso() })
   const restore = (note: Note) => saveNote(note.id, { deletedAt: null })
   const destroy = (note: Note) => {
@@ -96,26 +113,41 @@ export function NotesPage({ createOnOpen = false }: { createOnOpen?: boolean }) 
     <header className="page-header compact"><div><span className="eyebrow">NOTES</span><h1>笔记</h1></div><div className="notes-page-actions"><Button variant="outline" className="button notes-browser-trigger" onClick={() => setBrowserOpen(true)}><NotebookPen size={17} />笔记列表</Button><Button className="button primary" onClick={addNote}><Plus size={17} />新建笔记</Button></div></header>
     <div className="notes-workspace">
       <aside className="folder-pane">
-        <button className={folderFilter === 'all' ? 'active' : ''} onClick={() => setFolderFilter('all')} title="全部笔记"><NotebookPen size={17} />全部笔记<span>{notes.filter((note) => !note.deletedAt).length}</span></button>
+        <button className={folderFilter === 'all' ? 'active' : ''} onClick={() => setFolderFilter('all')} title="全部笔记"><NotebookPen size={17} />全部笔记<span>{counts.all}</span></button>
         <div className="pane-label"><span>文件夹</span><button onClick={() => setCreatingFolder(true)} title="新建文件夹"><FolderPlus size={15} /></button></div>
-        {folders.map((folder) => <button key={folder.id} className={folderFilter === folder.id ? 'active' : ''} onClick={() => setFolderFilter(folder.id)} title={folder.name}><Folder size={16} /><span className="user-content">{folder.name}</span><span>{notes.filter((note) => note.folderId === folder.id && !note.deletedAt).length}</span></button>)}
-        <button className={`trash-link ${folderFilter === 'trash' ? 'active' : ''}`} onClick={() => setFolderFilter('trash')} title="回收站"><Trash2 size={16} />回收站<span>{notes.filter((note) => note.deletedAt).length}</span></button>
+        {folders.map((folder) => <button key={folder.id} className={folderFilter === folder.id ? 'active' : ''} onClick={() => setFolderFilter(folder.id)} title={folder.name}><Folder size={16} /><span className="user-content">{folder.name}</span><span>{counts.folders.get(folder.id) ?? 0}</span></button>)}
+        <button className={`trash-link ${folderFilter === 'trash' ? 'active' : ''}`} onClick={() => setFolderFilter('trash')} title="回收站"><Trash2 size={16} />回收站<span>{counts.trash}</span></button>
       </aside>
       <div className="note-list-pane">
         <label className="search-box small"><Search size={15} /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记" /></label>
-        <div className="note-list">{visibleNotes.map((note) => <button key={note.id} className={selectedId === note.id ? 'active' : ''} onClick={() => setSelectedId(note.id)}>
-          <div><strong className={note.title ? 'private-note-title' : undefined}>{note.title || '无标题笔记'}</strong>{note.pinned && <Pin size={12} fill="currentColor" />}</div><p className={extractText(note.content).trim() ? 'private-note-preview' : undefined}>{extractText(note.content).trim() || '空白笔记'}</p><span>{formatDate(note.updatedAt, true)}</span>
-        </button>)}</div>
+        <VirtualNoteList notes={visibleNotes} selectedId={selectedId} onSelect={setSelectedId} resetKey={`${folderFilter}:${query}`} />
       </div>
-      <div className="editor-pane">{selected ? <NoteEditor key={selected.id} note={selected} folders={folders} inTrash={Boolean(selected.deletedAt)} onSave={(patch) => saveNote(selected.id, patch)} onTrash={() => moveToTrash(selected)} onRestore={() => restore(selected)} onDestroy={() => setDeleteTarget(selected)} /> : <EmptyState icon={<NotebookPen size={25} />} title={folderFilter === 'trash' ? '回收站是空的' : '开始写一点什么'} description={folderFilter === 'trash' ? '删除的笔记会在这里等待你决定。' : '新建一条笔记，记下此刻的想法。'} action={folderFilter !== 'trash' ? <Button className="button primary" onClick={addNote}>新建笔记</Button> : undefined} />}</div>
+      <div className="editor-pane">{selected ? <MemoNoteEditor key={selected.id} note={selected} folders={folders} inTrash={Boolean(selected.deletedAt)} onSave={(patch) => saveNote(selected.id, patch)} onTrash={() => moveToTrash(selected)} onRestore={() => restore(selected)} onDestroy={() => setDeleteTarget(selected)} /> : <EmptyState icon={<NotebookPen size={25} />} title={folderFilter === 'trash' ? '回收站是空的' : '开始写一点什么'} description={folderFilter === 'trash' ? '删除的笔记会在这里等待你决定。' : '新建一条笔记，记下此刻的想法。'} action={folderFilter !== 'trash' ? <Button className="button primary" onClick={addNote}>新建笔记</Button> : undefined} />}</div>
     </div>
-    <Sheet open={browserOpen} onOpenChange={setBrowserOpen}><SheetContent side="left" className="notes-browser-sheet"><SheetHeader><SheetTitle>笔记</SheetTitle><SheetDescription>选择文件夹或继续编辑一篇笔记。</SheetDescription></SheetHeader><div className="notes-browser-body"><div className="notes-browser-folders"><button className={folderFilter === 'all' ? 'active' : ''} onClick={() => setFolderFilter('all')}><NotebookPen size={17} />全部笔记<span>{notes.filter((note) => !note.deletedAt).length}</span></button><div className="notes-browser-folder-heading"><span>文件夹</span><button onClick={() => { setBrowserOpen(false); setCreatingFolder(true) }} title="新建文件夹"><FolderPlus size={15} /></button></div>{folders.map((folder) => <button key={folder.id} className={folderFilter === folder.id ? 'active' : ''} onClick={() => setFolderFilter(folder.id)}><Folder size={16} /><span className="user-content">{folder.name}</span><span>{notes.filter((note) => note.folderId === folder.id && !note.deletedAt).length}</span></button>)}<button className={`notes-browser-trash ${folderFilter === 'trash' ? 'active' : ''}`} onClick={() => setFolderFilter('trash')}><Trash2 size={16} />回收站<span>{notes.filter((note) => note.deletedAt).length}</span></button></div><div className="notes-browser-list"><label className="search-box small"><Search size={15} /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记" /></label><div>{visibleNotes.map((note) => <button key={note.id} className={selectedId === note.id ? 'active' : ''} onClick={() => { setSelectedId(note.id); setBrowserOpen(false) }}><strong className={note.title ? 'private-note-title' : undefined}>{note.title || '无标题笔记'}</strong><p className={extractText(note.content).trim() ? 'private-note-preview' : undefined}>{extractText(note.content).trim() || '空白笔记'}</p><span>{formatDate(note.updatedAt, true)}</span></button>)}</div></div></div></SheetContent></Sheet>
+    <Sheet open={browserOpen} onOpenChange={setBrowserOpen}><SheetContent side="left" className="notes-browser-sheet"><SheetHeader><SheetTitle>笔记</SheetTitle><SheetDescription>选择文件夹或继续编辑一篇笔记。</SheetDescription></SheetHeader><div className="notes-browser-body"><div className="notes-browser-folders"><button className={folderFilter === 'all' ? 'active' : ''} onClick={() => setFolderFilter('all')}><NotebookPen size={17} />全部笔记<span>{counts.all}</span></button><div className="notes-browser-folder-heading"><span>文件夹</span><button onClick={() => { setBrowserOpen(false); setCreatingFolder(true) }} title="新建文件夹"><FolderPlus size={15} /></button></div>{folders.map((folder) => <button key={folder.id} className={folderFilter === folder.id ? 'active' : ''} onClick={() => setFolderFilter(folder.id)}><Folder size={16} /><span className="user-content">{folder.name}</span><span>{counts.folders.get(folder.id) ?? 0}</span></button>)}<button className={`notes-browser-trash ${folderFilter === 'trash' ? 'active' : ''}`} onClick={() => setFolderFilter('trash')}><Trash2 size={16} />回收站<span>{counts.trash}</span></button></div><div className="notes-browser-list"><label className="search-box small"><Search size={15} /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记" /></label><VirtualNoteList notes={visibleNotes} selectedId={selectedId} onSelect={selectFromBrowser} resetKey={`${folderFilter}:${query}`} compact /></div></div></SheetContent></Sheet>
     <PromptDialog open={creatingFolder} onOpenChange={setCreatingFolder} title="新建文件夹" description="为笔记创建一个新分类。" placeholder="文件夹名称" confirmLabel="创建" onSubmit={addFolder} />
     <ConfirmDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }} title="永久删除笔记？" description={deleteTarget ? <><span>《</span><span className="user-content">{deleteTarget.title}</span><span>》将被永久删除，此操作无法撤销。</span></> : ''} confirmLabel="永久删除" destructive icon={<Trash2 />} onConfirm={() => { if (deleteTarget) destroy(deleteTarget); setDeleteTarget(null) }} />
   </section>
+})
+
+const MemoNoteEditor = memo(NoteEditor, (previous, next) => previous.note === next.note && previous.folders === next.folders && previous.inTrash === next.inTrash)
+
+const searchTexts = new WeakMap<Note['content'], string>()
+function noteSearchText(note: Note) {
+  let text = searchTexts.get(note.content)
+  if (text === undefined) { text = extractText(note.content).toLowerCase(); searchTexts.set(note.content, text) }
+  return text
+}
+const noteTimes = new WeakMap<Note, number>()
+function noteTime(note: Note) {
+  let value = noteTimes.get(note)
+  if (value === undefined) { value = Date.parse(note.updatedAt) || 0; noteTimes.set(note, value) }
+  return value
 }
 
+
 function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDestroy }: { note: Note; folders: { id: string; name: string }[]; inTrash: boolean; onSave: (patch: Partial<Note>) => void; onTrash: () => void; onRestore: () => void; onDestroy: () => void }) {
+  const [operationError, setOperationError] = useState('')
   const [promptKind, setPromptKind] = useState<'link' | 'image-link' | null>(null)
   const [imageSourceOpen, setImageSourceOpen] = useState(false)
   const [captionPosition, setCaptionPosition] = useState<number | null>(null)
@@ -124,24 +156,13 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
   const imageInput = useRef<HTMLInputElement>(null)
   const markdownInput = useRef<HTMLInputElement>(null)
   const saveRef = useRef(onSave)
-  const contentTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingContent = useRef<Note['content'] | null>(null)
+  const contentSaver = useRef<ReturnType<typeof createNoteContentSaver> | null>(null)
+  if (!contentSaver.current) contentSaver.current = createNoteContentSaver((content) => saveRef.current({ content }))
   const pendingTitle = useRef<string | null>(null)
   saveRef.current = onSave
 
-  const commitContent = () => {
-    if (contentTimer.current) { clearTimeout(contentTimer.current); contentTimer.current = null }
-    if (pendingContent.current === null) return
-    const content = pendingContent.current
-    pendingContent.current = null
-    saveRef.current({ content })
-  }
-  const scheduleContent = (content: Note['content']) => {
-    pendingContent.current = content
-    if (contentTimer.current) clearTimeout(contentTimer.current)
-    contentTimer.current = setTimeout(commitContent, 500)
-  }
+  const commitContent = () => contentSaver.current?.flush()
   const commitTitle = () => {
     if (titleTimer.current) { clearTimeout(titleTimer.current); titleTimer.current = null }
     if (pendingTitle.current === null) return
@@ -184,36 +205,43 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
         event.preventDefault()
         const dropPosition = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? view.state.selection.from
         void Promise.all(files.map(readImageFile)).then((sources) => {
+          if (!editor || editor.isDestroyed) return
           const position = Math.min(dropPosition, view.state.doc.content.size)
           const images = sources.map((src) => ({ type: 'image', attrs: { src } }))
-          editor?.chain().focus().insertContentAt(position, images).run()
-        })
+          editor.chain().focus().insertContentAt(position, images).run()
+        }).catch(() => setOperationError('图片保存失败，请重试。'))
         return true
       },
     },
-    onUpdate: ({ editor: instance }) => scheduleContent(instance.getJSON()),
+    onCreate: ({ editor: instance }) => contentSaver.current?.reset(instance.state.doc),
+    onUpdate: ({ editor: instance, transaction }) => {
+      if (transaction.docChanged) contentSaver.current?.schedule(instance.state.doc)
+    },
     onBlur: commitContent,
   })
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return
     editor.setEditable(!inTrash)
-    editor.commands.setContent(note.content, { emitUpdate: false })
-  }, [note.id, inTrash])
+  }, [editor, inTrash])
 
   useEffect(() => setTitleDraft(note.title), [note.title])
 
   useEffect(() => () => {
-    if (contentTimer.current) clearTimeout(contentTimer.current)
     if (titleTimer.current) clearTimeout(titleTimer.current)
-    if (pendingContent.current !== null) saveRef.current({ content: pendingContent.current })
+    contentSaver.current?.flush()
     if (pendingTitle.current !== null) saveRef.current({ title: pendingTitle.current })
   }, [])
 
   if (!editor || editor.isDestroyed) return null
   const setLink = (url: string) => applyNoteLink(editor, url)
   const addImage = (url: string) => editor.chain().focus().setImage({ src: url }).run()
-  const addImageFile = async (file: File) => addImage(await readImageFile(file))
+  const addImageFile = async (file: File) => {
+    try {
+      const src = await readImageFile(file)
+      if (!editor.isDestroyed) { addImage(src); setOperationError('') }
+    } catch { setOperationError('图片保存失败，请重试。') }
+  }
   const caption = captionPosition === null ? '' : editor.state.doc.nodeAt(captionPosition)?.attrs.caption || ''
   const saveCaption = (value: string) => {
     if (captionPosition === null) return
@@ -234,16 +262,21 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
     }).run()
     setCaptionPosition(null)
   }
-  const exportMarkdown = () => {
-    commitTitle()
-    commitContent()
-    const file = new Blob([markdownExport(titleDraft, editor.getMarkdown())], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(file)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = markdownFileName(titleDraft)
-    anchor.click()
-    URL.revokeObjectURL(url)
+  const exportMarkdown = async () => {
+    try {
+      commitTitle()
+      commitContent()
+      let markdown = editor.getMarkdown()
+      const references = new Set(markdown.match(/sylunae-note-asset:[a-f0-9]{64}/g) ?? [])
+      for (const reference of references) markdown = markdown.replaceAll(reference, await noteImageDataUrl(reference))
+      const file = new Blob([markdownExport(titleDraft, markdown)], { type: 'text/markdown;charset=utf-8' })
+      const url = URL.createObjectURL(file)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = markdownFileName(titleDraft)
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch { setOperationError('导出失败，请确认笔记图片可读取后重试。') }
   }
   const importMarkdown = () => {
     if (pendingImport === null) return
@@ -254,6 +287,9 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
       setTitleDraft(imported.title)
       patch.title = imported.title
     }
+    contentSaver.current?.reset(editor.state.doc)
+    if (titleTimer.current) clearTimeout(titleTimer.current)
+    pendingTitle.current = null
     onSave(patch)
     setPendingImport(null)
   }
@@ -304,6 +340,7 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
       {action(false, '撤销', <Undo2 size={16} />, () => { editor.chain().focus().undo().run() })}
     </div>}
     <EditorContent className="note-editor-content" editor={editor} />
+    {operationError && <div className="notice" role="alert">{operationError}</div>}
     <div className="editor-status">{inTrash ? `删除于 ${formatDate(note.deletedAt || '', true)}` : `自动保存 · ${formatDate(note.updatedAt, true)}`}</div>
     <input ref={markdownInput} hidden type="file" accept="text/markdown,.md,.markdown,text/plain,.txt" onChange={(event) => { const file = event.target.files?.[0]; if (file) void file.text().then(setPendingImport); event.currentTarget.value = '' }} />
     <PromptDialog open={promptKind === 'link'} onOpenChange={(open) => { if (!open) setPromptKind(null) }} title="添加链接" description="为选中文字设置链接；未选中文字时，会在光标处插入链接。" initialValue={editor.getAttributes('link').href || 'https://'} placeholder="https://example.com" confirmLabel="应用链接" validate={(value) => /^https?:\/\//i.test(value) ? null : '请输入 http 或 https 链接'} onSubmit={setLink} />

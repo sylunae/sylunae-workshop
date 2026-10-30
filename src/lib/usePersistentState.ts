@@ -1,3 +1,4 @@
+import { storageKey } from './storageEnvironment'
 import { useCallback, useState, type Dispatch, type SetStateAction } from 'react'
 
 function useStorageState<T>(storage: Storage, key: string, initialValue: T): [T, Dispatch<SetStateAction<T>>] {
@@ -29,10 +30,10 @@ function useStorageState<T>(storage: Storage, key: string, initialValue: T): [T,
 
 /** Keeps a preference across app launches. */
 export function usePersistentState<T>(key: string, initialValue: T): [T, Dispatch<SetStateAction<T>>] {
-  return useStorageState(window.localStorage, key, initialValue)
+  return useStorageState(window.localStorage, storageKey(key), initialValue)
 }
 
 /** Keeps transient navigation through reloads, but resets when the window is closed. */
 export function useSessionState<T>(key: string, initialValue: T): [T, Dispatch<SetStateAction<T>>] {
-  return useStorageState(window.sessionStorage, key, initialValue)
+  return useStorageState(window.sessionStorage, storageKey(key), initialValue)
 }

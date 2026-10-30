@@ -10,6 +10,8 @@ const api: SylunaeAPI = {
     save: (name, bytes) => ipcRenderer.invoke('image-processing:save', name, bytes),
   },
   storage: {
+    putNoteAsset: (bytes, mime) => ipcRenderer.invoke('storage:put-note-asset', bytes, mime),
+    getNoteAsset: (id) => ipcRenderer.invoke('storage:get-note-asset', id),
     load: () => ipcRenderer.invoke('storage:load'),
     save: (patch: AppSnapshotPatch) => ipcRenderer.invoke('storage:save', patch),
     replace: (snapshot: AppSnapshot) => ipcRenderer.invoke('storage:replace', snapshot),

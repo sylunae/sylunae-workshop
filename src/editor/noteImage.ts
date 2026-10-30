@@ -1,3 +1,4 @@
+import { acquireNoteImageUrl, createImageExternalizer, noteAssetPrefix, storeNoteImage } from '../data/noteAssets'
 import { mergeAttributes } from '@tiptap/core'
 import Image from '@tiptap/extension-image'
 import { NodeSelection, Plugin, PluginKey, type EditorState } from '@tiptap/pm/state'
@@ -46,6 +47,70 @@ export const NoteImage = Image.extend({
     return children as [string, Record<string, unknown>, ...unknown[]]
   },
 
+  addNodeView() {
+    return ({ node, editor, getPos }) => {
+      let current = node
+      let version = 0
+      let release: (() => void) | undefined
+      let destroyed = false
+      const figure = document.createElement('figure')
+      figure.dataset.type = 'note-image'
+      const image = document.createElement('img')
+      const caption = document.createElement('figcaption')
+      figure.append(image)
+      const render = () => {
+        const generation = ++version
+        release?.(); release = undefined
+        const source = String(current.attrs.src ?? '')
+        image.alt = current.attrs.alt ?? ''
+        if (current.attrs.title) image.title = current.attrs.title
+        else image.removeAttribute('title')
+        const text = current.attrs.caption
+        if (text) { figure.dataset.caption = text; caption.textContent = text; figure.append(caption) }
+        else { delete figure.dataset.caption; caption.remove() }
+        const show = (url: string) => { if (!destroyed && generation === version) image.src = url }
+        if (source.startsWith(noteAssetPrefix)) {
+          const resource = acquireNoteImageUrl(source)
+          release = resource.release
+          void resource.url.then(show, () => { if (!destroyed && generation === version) image.alt = '图片读取失败' })
+        } else {
+          image.src = source
+          // HTML paste and older Markdown can still introduce embedded data URLs.
+          // Convert once, then update only this node if it still has the same source.
+          if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(source)) {
+            void createImageExternalizer()(source).then((src) => {
+              if (destroyed || editor.isDestroyed || generation !== version) return
+              const pos = getPos()
+              if (typeof pos !== 'number') return
+              const latest = editor.state.doc.nodeAt(pos)
+              if (latest?.type.name === 'image' && latest.attrs.src === source) {
+                editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...latest.attrs, src }).setMeta('addToHistory', false))
+              }
+            }, () => { /* Keep the original image and content if conversion fails. */ })
+          }
+        }
+      }
+      render()
+      return {
+        dom: figure,
+        ignoreMutation: (mutation) => mutation.type !== 'selection',
+        update(next) {
+          if (next.type !== current.type) return false
+          const sourceChanged = next.attrs.src !== current.attrs.src
+          current = next
+          if (sourceChanged) render()
+          else {
+            image.alt = current.attrs.alt ?? ''
+            if (current.attrs.caption) { figure.dataset.caption = current.attrs.caption; caption.textContent = current.attrs.caption; figure.append(caption) }
+            else { delete figure.dataset.caption; caption.remove() }
+          }
+          return true
+        },
+        destroy() { destroyed = true; version++; release?.() },
+      }
+    }
+  },
+
   addProseMirrorPlugins() {
     return [
       ...(this.parent?.() ?? []),
@@ -67,11 +132,6 @@ export function isImageNodeSelection(selection: EditorState['selection']): selec
   return selection instanceof NodeSelection && selection.node.type.name === 'image'
 }
 
-export function readImageFile(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('无法读取图片'))
-    reader.onerror = () => reject(reader.error ?? new Error('无法读取图片'))
-    reader.readAsDataURL(file)
-  })
+export async function readImageFile(file: File) {
+  return storeNoteImage(new Uint8Array(await file.arrayBuffer()), file.type)
 }

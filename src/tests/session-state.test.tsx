@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { storageKey } from '../lib/storageEnvironment'
 import { useSessionState } from '../lib/usePersistentState'
 
 function SessionStateHarness() {
@@ -18,11 +19,20 @@ describe('session navigation state', () => {
     expect(screen.getByRole('button').textContent).toBe('home')
   })
 
-  it('restores the current page after a renderer reload', () => {
+  it('does not read or overwrite production navigation in development', () => {
     window.sessionStorage.setItem('navigation.testPage', JSON.stringify('music'))
+    render(<SessionStateHarness />)
+    expect(screen.getByRole('button').textContent).toBe('home')
+    fireEvent.click(screen.getByRole('button'))
+    expect(window.sessionStorage.getItem('navigation.testPage')).toBe(JSON.stringify('music'))
+    expect(window.sessionStorage.getItem(storageKey('navigation.testPage'))).toBe(JSON.stringify('notes'))
+  })
+
+  it('restores the current page after a renderer reload', () => {
+    window.sessionStorage.setItem(storageKey('navigation.testPage'), JSON.stringify('music'))
     render(<SessionStateHarness />)
     expect(screen.getByRole('button').textContent).toBe('music')
     fireEvent.click(screen.getByRole('button'))
-    expect(window.sessionStorage.getItem('navigation.testPage')).toBe(JSON.stringify('notes'))
+    expect(window.sessionStorage.getItem(storageKey('navigation.testPage'))).toBe(JSON.stringify('notes'))
   })
 })

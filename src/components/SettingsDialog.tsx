@@ -1,3 +1,4 @@
+import { portableNoteSnapshot } from '../data/noteAssets'
 import { useEffect, useRef, useState } from 'react'
 import { BellRing, Check, CheckCircle2, ClipboardPaste, Code2, Copy, Database, Download, ExternalLink, EyeOff, FileWarning, FolderOpen, Globe2, HardDrive, Info, Laptop, Link2, Moon, PackageOpen, Palette, Play, RotateCcw, Settings, ShieldCheck, Sparkles, Sun, Undo2, Upload, UserRound, X } from 'lucide-react'
 import { useAppStore } from '../app/AppStore'
@@ -78,20 +79,23 @@ function SettingsPanel() {
     setMessage(clean ? '用户名已更新，返回收藏库后会实时读取。' : '已移除 Bangumi 用户名。')
   }
   const exportBackup = async () => {
-    await flush()
-    const contents = JSON.stringify(createBackup(snapshot), null, 2)
-    if (window.sylunae) {
-      const saved = await window.sylunae.backup.exportFile(contents)
-      if (saved) setMessage('备份已成功导出。')
-    } else {
-      const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }))
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `sylunae-backup-${new Date().toISOString().slice(0, 10)}.json`
-      anchor.click()
-      URL.revokeObjectURL(url)
-      setMessage('备份已下载。')
-    }
+    try {
+      const current = await flush()
+      if (!current) return
+      const contents = JSON.stringify(createBackup(await portableNoteSnapshot(current)), null, 2)
+      if (window.sylunae) {
+        const saved = await window.sylunae.backup.exportFile(contents)
+        if (saved) setMessage('备份已成功导出。')
+      } else {
+        const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }))
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = `sylunae-backup-${new Date().toISOString().slice(0, 10)}.json`
+        anchor.click()
+        URL.revokeObjectURL(url)
+        setMessage('备份已下载。')
+      }
+    } catch { setMessage('导出失败：请确认笔记图片可读取，并重试。') }
   }
   const downloadContents = async (contents: string, filename: string, successMessage: string) => {
     if (window.sylunae) {
@@ -108,10 +112,13 @@ function SettingsPanel() {
     setMessage(successMessage)
   }
   const exportPartialBackup = async (section: PartialBackupSection) => {
-    await flush()
-    const item = partialBackupSectionMeta.find((entry) => entry.id === section)!
-    const contents = JSON.stringify(createPartialBackup(snapshot, section), null, 2)
-    await downloadContents(contents, `siyue-${section}-backup-${new Date().toISOString().slice(0, 10)}.json`, `“${item.label}”局部备份已导出。`)
+    try {
+      const current = await flush()
+      if (!current) return
+      const item = partialBackupSectionMeta.find((entry) => entry.id === section)!
+      const contents = JSON.stringify(createPartialBackup(section === 'notes' ? await portableNoteSnapshot(current) : current, section), null, 2)
+      await downloadContents(contents, `siyue-${section}-backup-${new Date().toISOString().slice(0, 10)}.json`, `“${item.label}”局部备份已导出。`)
+    } catch { setMessage('导出失败：请确认笔记图片可读取，并重试。') }
   }
   const applyImport = async (contents: string) => {
     try {
