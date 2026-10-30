@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, protocol, shell } from 'electron'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { isIP } from 'node:net'
@@ -13,7 +13,7 @@ import { closeDatabase, loadSnapshot, replaceSnapshot, saveSnapshotPatch } from 
 import { getMediaToolPaths, getMediaToolsStatus, installMediaTools } from './mediaTools'
 import { registerImageProcessing } from './imageProcessing'
 import { downloadResource, getResourceAudioPath, importWhiteNoise, listResources, removeResource } from './resourceManager'
-import type { AppSnapshot, AppSnapshotPatch, ImageAspectType, ImageAsset, ImageLibraryRoot, ImageLibraryState, ImageScanProgress, LinkPreview, ManagedResourceDirectory, MusicEditableMetadata, MusicImportProgress, MusicImportStage, MusicMetadataUpdate, MusicRemoteImport, MusicTrack } from '../../src/shared/types'
+import type { AppSnapshot, AppSnapshotPatch, ImageAspectType, ImageAsset, ImageLibraryRoot, ImageLibraryState, ImageScanProgress, LinkPreview, ManagedResourceDirectory, MusicEditableMetadata, MusicImportProgress, MusicImportStage, MusicMetadataUpdate, MusicRemoteImport, MusicTrack, YoutubeVideoSearchResult } from '../../src/shared/types'
 
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga', '.flac', '.opus'])
 const AUDIO_MIME_TYPES: Record<string, string> = {
@@ -426,10 +426,29 @@ function getTagLib() {
 }
 
 function getDefaultMusicDirectory(): string {
-  const directory = resolve(app.getPath('userData'), 'music')
+  let directory = resolve(app.getPath('userData'), 'music')
+  try {
+    const saved = JSON.parse(readFileSync(join(app.getPath('userData'), 'music-download-directory.json'), 'utf8')) as { directory?: unknown }
+    if (typeof saved.directory === 'string' && saved.directory.length > 0) {
+      const lastDirectory = resolve(saved.directory)
+      if (existsSync(lastDirectory) && statSync(lastDirectory).isDirectory()) directory = lastDirectory
+    }
+  } catch { /* Use the default music folder if the saved location is missing or invalid. */ }
   mkdirSync(directory, { recursive: true })
   sessionDownloadDirectories.add(directory)
   return directory
+}
+
+function rememberMusicDirectory(directory: string): void {
+  const preferencesPath = join(app.getPath('userData'), 'music-download-directory.json')
+  const temporaryPath = `${preferencesPath}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temporaryPath, JSON.stringify({ directory }), { flag: 'wx' })
+    renameSync(temporaryPath, preferencesPath)
+  } catch (error) {
+    try { unlinkSync(temporaryPath) } catch { /* Best-effort cleanup. */ }
+    throw error
+  }
 }
 
 function managedResourceDirectory(directory: ManagedResourceDirectory): string {
@@ -696,6 +715,34 @@ async function importYoutube(url: URL, directory: string, report: ProgressReport
   }
 }
 
+async function searchYoutubeVideos(query: unknown): Promise<YoutubeVideoSearchResult[]> {
+  if (typeof query !== 'string') throw new Error('请输入搜索内容')
+  const normalized = query.trim()
+  if (!normalized) throw new Error('请输入搜索内容')
+  if (normalized.length > 200) throw new Error('搜索内容不能超过 200 个字符')
+  const mediaTools = getMediaToolPaths()
+  const youtubeDl = createYoutubeDl(mediaTools.ytDlp)
+  const response = await youtubeDl(`ytsearch10:${normalized}`, {
+    dumpSingleJson: true,
+    flatPlaylist: true,
+    noWarnings: true,
+    skipDownload: true,
+  })
+  if (typeof response === 'string') return []
+  const playlist = response as unknown as { entries?: unknown[] }
+  if (!Array.isArray(playlist.entries)) return []
+  return playlist.entries.flatMap((item: unknown) => {
+    if (!item || typeof item !== 'object') return []
+    const entry = item as Record<string, unknown>
+    const id = typeof entry.id === 'string' ? entry.id : ''
+    const title = typeof entry.title === 'string' ? entry.title : ''
+    if (!/^[\w-]{6,20}$/.test(id) || !title) return []
+    const duration = typeof entry.duration === 'number' && Number.isFinite(entry.duration) && entry.duration >= 0 ? entry.duration : null
+    const channel = typeof entry.channel === 'string' ? entry.channel : typeof entry.uploader === 'string' ? entry.uploader : ''
+    return [{ id, title, channel, duration, url: `https://www.youtube.com/watch?v=${id}` }]
+  })
+}
+
 function assertEditableAudioPath(filePath: string): void {
   if (typeof filePath !== 'string' || !isIndexedPath(filePath) || !existsSync(filePath) || !AUDIO_EXTENSIONS.has(extname(filePath).toLowerCase())) {
     throw new Error('音乐文件不可用或未加入资料库')
@@ -845,6 +892,7 @@ function registerIpc(): void {
     return tracks
   })
   ipcMain.handle('music:get-download-directory', () => getDefaultMusicDirectory())
+  ipcMain.handle('music:search-youtube', (_event, query: unknown) => searchYoutubeVideos(query))
   ipcMain.handle('music:pick-download-directory', async (_event, currentDirectory: string) => {
     const defaultPath = typeof currentDirectory === 'string' && sessionDownloadDirectories.has(resolve(currentDirectory))
       ? resolve(currentDirectory)
@@ -856,6 +904,7 @@ function registerIpc(): void {
     })
     if (result.canceled || !result.filePaths[0]) return null
     const directory = resolve(result.filePaths[0])
+    rememberMusicDirectory(directory)
     sessionDownloadDirectories.add(directory)
     return directory
   })

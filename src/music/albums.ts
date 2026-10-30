@@ -46,7 +46,7 @@ export function reconcileMusicLibrary(tracks: MusicTrack[], albums: MusicAlbum[]
     return { ...track, albumId: album.id }
   })
 
-  const activeAlbums = nextAlbums.filter((album) => used.has(album.id)).map((album) => {
+  const activeAlbums = nextAlbums.filter((album) => used.has(album.id) || album.keepEmpty).map((album) => {
     const albumTracks = nextTracks.filter((track) => track.albumId === album.id)
     const explicitArtist = albumTracks.find((track) => track.albumArtist)?.albumArtist
     const artists = new Set(albumTracks.map((track) => track.artist).filter((artist) => artist && artist !== '未知艺术家'))

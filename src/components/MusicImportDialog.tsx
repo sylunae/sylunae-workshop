@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { ArrowLeft, FileAudio, FolderOpen, Link2, Video } from 'lucide-react'
-import type { MusicImportProgress, MusicImportStage, MusicRemoteSource, MusicTrack } from '../shared/types'
+import { ArrowLeft, Clock3, FileAudio, FolderOpen, Link2, Search, Video } from 'lucide-react'
+import type { MusicImportProgress, MusicImportStage, MusicRemoteSource, MusicTrack, YoutubeVideoSearchResult } from '../shared/types'
 import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog'
 import { Input } from './ui/input'
@@ -35,6 +35,13 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+function formatDuration(seconds: number | null): string {
+  if (seconds === null) return ''
+  const minutes = Math.floor(seconds / 60)
+  const remainder = Math.floor(seconds % 60).toString().padStart(2, '0')
+  return `${minutes}:${remainder}`
+}
+
 const youtubeStages: Array<{ stage: Exclude<MusicImportStage, 'complete'>; label: string }> = [
   { stage: 'reading', label: '读取信息' },
   { stage: 'downloading', label: '下载音频' },
@@ -54,6 +61,10 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [progress, setProgress] = useState<MusicImportProgress | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<YoutubeVideoSearchResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [searched, setSearched] = useState(false)
   const [mediaToolsOpen, setMediaToolsOpen] = useState(false)
   const activeTaskId = useRef<string | null>(null)
 
@@ -67,6 +78,9 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
     setUrl('')
     setError('')
     setProgress(null)
+    setSearchQuery('')
+    setSearchResults([])
+    setSearched(false)
     activeTaskId.current = null
     void window.sylunae.music.getDownloadDirectory().then(setDirectory).catch((reason) => setError(readableError(reason)))
   }, [open])
@@ -99,6 +113,26 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
     } catch (reason) {
       setError(readableError(reason))
     }
+  }
+
+  const searchYoutube = async () => {
+    if (!window.sylunae || !searchQuery.trim() || searching) return
+    setSearching(true)
+    setSearched(true)
+    setError('')
+    setSearchResults([])
+    try {
+      setSearchResults(await window.sylunae.music.searchYoutube(searchQuery))
+    } catch (reason) {
+      setError(readableError(reason))
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const selectYoutubeResult = (video: YoutubeVideoSearchResult) => {
+    setUrl(video.url)
+    setError('')
   }
 
   const importRemote = async () => {
@@ -157,6 +191,20 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
           <div><DialogTitle>{copy?.title}</DialogTitle><DialogDescription>{copy?.description}</DialogDescription></div>
         </DialogHeader>
         <div className="music-import-form">
+          {step === 'youtube' && <>
+            <label htmlFor="youtube-search-query">搜索 YouTube 视频</label>
+            <div className="youtube-search-row">
+              <Input id="youtube-search-query" value={searchQuery} onChange={(event) => { setSearchQuery(event.target.value); setSearchResults([]); setSearched(false); setError('') }} onKeyDown={(event) => { if (event.key === 'Enter' && !searching) void searchYoutube() }} placeholder="搜索歌曲、歌手或视频标题" disabled={searching || busy} />
+              <Button type="button" variant="outline" onClick={() => void searchYoutube()} disabled={searching || busy || !searchQuery.trim()}>{searching ? <span className="spinner small" aria-hidden /> : <Search size={16} />}{searching ? '搜索中' : '搜索'}</Button>
+            </div>
+            {searchResults.length > 0 && <div className="youtube-search-results" aria-label="YouTube 搜索结果">
+              {searchResults.map((video) => <button type="button" key={video.id} className={`youtube-search-result ${url === video.url ? 'selected' : ''}`} onClick={() => selectYoutubeResult(video)} disabled={busy} aria-pressed={url === video.url}>
+                <span className="youtube-search-copy"><strong>{video.title}</strong><small>{video.channel || 'YouTube'}{video.duration !== null && <> · <Clock3 size={12} /> {formatDuration(video.duration)}</>}</small></span>
+                {url === video.url && <span className="youtube-search-selected">已选择</span>}
+              </button>)}
+            </div>}
+            {searchResults.length === 0 && !searching && searched && <p className="music-import-hint">没有找到视频。你可以换个关键词，或直接粘贴视频链接。</p>}
+          </>}
           <label htmlFor={inputId}>链接</label>
           <Input id={inputId} autoFocus value={url} onChange={(event) => { setUrl(event.target.value); setError('') }} onKeyDown={(event) => { if (event.key === 'Enter' && !busy) void importRemote() }} placeholder={copy?.placeholder} disabled={busy} />
           <label>文件保存位置</label>

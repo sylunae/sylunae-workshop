@@ -206,6 +206,7 @@ export interface MusicAlbum {
   cover: string
   createdAt: string
   updatedAt: string
+  keepEmpty?: boolean
 }
 
 export interface MusicEditableMetadata {
@@ -250,6 +251,14 @@ export interface MusicRemoteImport {
   source: MusicRemoteSource
   url: string
   directory: string
+}
+
+export interface YoutubeVideoSearchResult {
+  id: string
+  title: string
+  channel: string
+  duration: number | null
+  url: string
 }
 
 export interface MediaToolComponentStatus {
@@ -591,6 +600,7 @@ export interface SylunaeAPI {
     getDownloadDirectory: () => Promise<string>
     pickDownloadDirectory: (currentDirectory: string) => Promise<string | null>
     importRemote: (input: MusicRemoteImport) => Promise<MusicTrack>
+    searchYoutube: (query: string) => Promise<YoutubeVideoSearchResult[]>
     onImportProgress: (listener: (progress: MusicImportProgress) => void) => () => void
     getMediaToolsStatus: () => Promise<MediaToolsStatus>
     installMediaTools: () => Promise<MediaToolsStatus>

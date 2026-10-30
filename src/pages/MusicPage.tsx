@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Album, ArrowRight, CloudRain, Disc3, FileMusic, FolderOpen, ListMusic, LocateFixed, Music2, Pause, PencilLine, Play, Plus, Repeat, Repeat1, Search, Shuffle, SkipBack, SkipForward, Trash2, Volume1, Volume2 } from 'lucide-react'
+import { Album, ArrowRight, CheckSquare2, CloudRain, Disc3, FileMusic, FolderOpen, ListMusic, LocateFixed, Music2, Pause, PencilLine, Play, Plus, Repeat, Repeat1, Search, Shuffle, SkipBack, SkipForward, Trash2, Volume1, Volume2, X } from 'lucide-react'
 import { useAppStore } from '../app/AppStore'
 import type { MusicAlbum, MusicMetadataUpdate, MusicTrack } from '../shared/types'
 import { formatDuration } from '../utils'
@@ -16,6 +16,9 @@ import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { AudioWaveform } from '../components/AudioWaveform'
 import { adjacentTrack, playbackQueue } from '../music/playback'
 import { usePersistentState } from '../lib/usePersistentState'
+import { Checkbox } from '../components/ui/checkbox'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 
 type RepeatMode = 'off' | 'all' | 'one'
 
@@ -38,6 +41,15 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
   const [playerError, setPlayerError] = useState('')
   const [audioUrl, setAudioUrl] = useState('')
   const [removeTarget, setRemoveTarget] = useState<MusicTrack | null>(null)
+  const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(() => new Set())
+  const [selectingTracks, setSelectingTracks] = useState(false)
+  const [removeSelectedOpen, setRemoveSelectedOpen] = useState(false)
+  const [createAlbumOpen, setCreateAlbumOpen] = useState(false)
+  const [newAlbumTitle, setNewAlbumTitle] = useState('')
+  const [newAlbumArtist, setNewAlbumArtist] = useState('')
+  const [createAlbumError, setCreateAlbumError] = useState('')
+  const [assignAlbumOpen, setAssignAlbumOpen] = useState(false)
+  const [assignAlbumId, setAssignAlbumId] = useState('')
   const [editTarget, setEditTarget] = useState<MusicTrack | null>(null)
   const [albumTarget, setAlbumTarget] = useState<MusicAlbum | null>(null)
   const [importOpen, setImportOpen] = useState(false)
@@ -48,6 +60,9 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
   const filtered = useMemo(() => tracks.filter((track) => `${track.title} ${track.artist} ${track.album}`.toLowerCase().includes(query.toLowerCase())), [tracks, query])
   const filteredAlbums = useMemo(() => albums.filter((album) => `${album.title} ${album.artist}`.toLowerCase().includes(query.toLowerCase())), [albums, query])
   const queue = useMemo(() => playbackQueue(tracks, queueAlbumId), [tracks, queueAlbumId])
+  const filteredTrackIds = filtered.map((track) => track.id)
+  const selectedFilteredCount = filteredTrackIds.filter((id) => selectedTrackIds.has(id)).length
+  const allFilteredSelected = filteredTrackIds.length > 0 && selectedFilteredCount === filteredTrackIds.length
 
   useEffect(() => {
     if (!window.sylunae || tracks.length === 0) return
@@ -112,7 +127,78 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
 
   const remove = (track: MusicTrack) => {
     if (currentId === track.id) { audio.current?.pause(); setCurrentId(null); setAudioUrl(''); setPlaying(false) }
+    setSelectedTrackIds((currentSelection) => { const next = new Set(currentSelection); next.delete(track.id); return next })
     update((state) => ({ ...state, ...reconcileMusicLibrary(state.tracks.filter((item) => item.id !== track.id), state.albums) }))
+  }
+
+  const toggleTrackSelection = (trackId: string) => {
+    setSelectedTrackIds((currentSelection) => {
+      const next = new Set(currentSelection)
+      if (next.has(trackId)) next.delete(trackId)
+      else next.add(trackId)
+      return next
+    })
+  }
+
+  const toggleFilteredTrackSelection = () => {
+    setSelectedTrackIds((currentSelection) => {
+      const next = new Set(currentSelection)
+      if (allFilteredSelected) filteredTrackIds.forEach((id) => next.delete(id))
+      else filteredTrackIds.forEach((id) => next.add(id))
+      return next
+    })
+  }
+
+  const removeSelectedTracks = () => {
+    if (selectedTrackIds.has(currentId || '')) {
+      audio.current?.pause()
+      setCurrentId(null)
+      setAudioUrl('')
+      setPlaying(false)
+    }
+    update((state) => ({ ...state, ...reconcileMusicLibrary(state.tracks.filter((track) => !selectedTrackIds.has(track.id)), state.albums) }))
+    setSelectedTrackIds(new Set())
+    setSelectingTracks(false)
+    setRemoveSelectedOpen(false)
+  }
+
+  const createAlbum = () => {
+    const title = newAlbumTitle.trim()
+    if (!title) { setCreateAlbumError('请输入专辑名称'); return }
+    const key = title.normalize('NFKC').toLocaleLowerCase()
+    if (albums.some((album) => album.title.normalize('NFKC').trim().toLocaleLowerCase() === key)) {
+      setCreateAlbumError('已存在同名专辑')
+      return
+    }
+    const now = new Date().toISOString()
+    const album: MusicAlbum = {
+      id: crypto.randomUUID(), title, artist: newAlbumArtist.trim() || '未知艺术家', cover: '',
+      createdAt: now, updatedAt: now, keepEmpty: true,
+    }
+    update((state) => ({ ...state, albums: [...state.albums, album] }))
+    setNewAlbumTitle('')
+    setNewAlbumArtist('')
+    setCreateAlbumError('')
+    setCreateAlbumOpen(false)
+    setQuery('')
+    setView('albums')
+  }
+
+  const addSelectedTracksToAlbum = () => {
+    const selectedIds = new Set(selectedTrackIds)
+    const now = new Date().toISOString()
+    update((state) => {
+      const album = state.albums.find((item) => item.id === assignAlbumId)
+      if (!album) return state
+      const nextTracks = state.tracks.map((track) => selectedIds.has(track.id)
+        ? { ...track, album: album.title, albumArtist: album.artist, albumId: album.id, updatedAt: now }
+        : track)
+      const nextAlbums = state.albums.map((item) => item.id === album.id ? { ...item, updatedAt: now } : item)
+      return { ...state, ...reconcileMusicLibrary(nextTracks, nextAlbums) }
+    })
+    setSelectedTrackIds(new Set())
+    setSelectingTracks(false)
+    setAssignAlbumOpen(false)
   }
 
   const relocate = async (track: MusicTrack) => {
@@ -178,13 +264,22 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
       {current && audioUrl ? <AudioWaveform media={audio.current} src={audioUrl} /> : <div className="audio-waveform-placeholder" aria-hidden><span /></div>}
     </div>
     <div className="toolbar music-library-toolbar">
-      <Tabs value={view} onValueChange={(value) => setView(value as 'tracks' | 'albums')}><TabsList variant="line" aria-label="音乐资料库视图"><TabsTrigger value="tracks"><Music2 />歌曲 <span>{tracks.length}</span></TabsTrigger><TabsTrigger value="albums"><Album />专辑 <span>{albums.length}</span></TabsTrigger></TabsList></Tabs>
+      <Tabs value={view} onValueChange={(value) => { const nextView = value as 'tracks' | 'albums'; setView(nextView); if (nextView === 'albums') { setSelectedTrackIds(new Set()); setSelectingTracks(false) } }}><TabsList variant="line" aria-label="音乐资料库视图"><TabsTrigger value="tracks"><Music2 />歌曲 <span>{tracks.length}</span></TabsTrigger><TabsTrigger value="albums"><Album />专辑 <span>{albums.length}</span></TabsTrigger></TabsList></Tabs>
       <label className="search-box"><Search size={17} /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={view === 'tracks' ? '搜索歌曲、艺术家或专辑' : '搜索专辑或艺术家'} /></label>
+      {view === 'tracks' && <div className="music-selection-actions">
+        {selectingTracks ? <>
+          <span>{selectedTrackIds.size ? `已选 ${selectedTrackIds.size} 首` : '选择歌曲'}</span>
+          <Button variant="outline" size="sm" disabled={!selectedTrackIds.size || albums.length === 0} onClick={() => { setAssignAlbumId(albums[0]?.id ?? ''); setAssignAlbumOpen(true) }}><Album size={15} />加入专辑</Button>
+          <Button variant="destructive" size="sm" disabled={!selectedTrackIds.size} onClick={() => setRemoveSelectedOpen(true)}><Trash2 size={15} />移除所选</Button>
+          <Button variant="ghost" size="sm" onClick={() => { setSelectedTrackIds(new Set()); setSelectingTracks(false) }}><X size={15} />取消</Button>
+        </> : <Button variant="outline" size="lg" onClick={() => setSelectingTracks(true)}><CheckSquare2 size={15} />批量选择</Button>}
+      </div>}
+      {view === 'albums' && <Button variant="outline" size="lg" onClick={() => { setCreateAlbumError(''); setCreateAlbumOpen(true) }}><Plus size={15} />新建专辑</Button>}
     </div>
     {playerError && <div className="notice error">{playerError}</div>}
     {tracks.length === 0 ? <EmptyState icon={<FileMusic size={26} />} title="资料库还是空的" description="可以索引电脑中的音频，也可以从 YouTube 或音频链接下载到本地。" action={<Button className="button primary" onClick={() => setImportOpen(true)}><Plus size={16} />添加第一首音乐</Button>} /> :
-      view === 'tracks' ? <div className="track-table"><div className="track-head"><span>#</span><span>歌曲</span><span>专辑</span><span>时长</span><span /></div>{filtered.map((track, index) => <div key={track.id} className={`track-row ${currentId === track.id ? 'active' : ''} ${track.missing ? 'missing' : ''}`} onDoubleClick={() => void playTrack(track)}>
-        <button className="track-play" disabled={track.missing} onClick={() => currentId === track.id ? togglePlay() : void playTrack(track)}>{currentId === track.id && playing ? <Pause size={15} /> : <span>{index + 1}</span>}</button>
+      view === 'tracks' ? <div className="track-table"><div className="track-head"><span>{selectingTracks ? <Checkbox aria-label="选择当前筛选的全部歌曲" checked={allFilteredSelected ? true : selectedFilteredCount > 0 ? 'indeterminate' : false} onCheckedChange={toggleFilteredTrackSelection} /> : '#'}</span><span>歌曲</span><span>专辑</span><span>时长</span><span /></div>{filtered.map((track, index) => <div key={track.id} className={`track-row ${currentId === track.id ? 'active' : ''} ${track.missing ? 'missing' : ''} ${selectedTrackIds.has(track.id) ? 'selected' : ''}`} onDoubleClick={() => void playTrack(track)}>
+        {selectingTracks ? <span className="track-select-cell"><Checkbox aria-label={`选择 ${track.title}`} checked={selectedTrackIds.has(track.id)} onCheckedChange={() => toggleTrackSelection(track.id)} /></span> : <button className="track-play" disabled={track.missing} onClick={() => currentId === track.id ? togglePlay() : void playTrack(track)}>{currentId === track.id && playing ? <Pause size={15} /> : <span>{index + 1}</span>}</button>}
         <div className="track-title"><div className="tiny-cover">{trackCover(track, albums, tracks) ? <img src={trackCover(track, albums, tracks)} alt="" /> : <Music2 size={15} />}</div><div><strong className="private-music-title">{track.title}</strong><span className={track.missing ? undefined : 'private-music-artist'}>{track.missing ? '文件已移动或删除' : track.artist}</span></div></div>
         {(() => { const album = track.albumId ? albums.find((item) => item.id === track.albumId) : undefined; return album ? <button type="button" className="track-album track-album-link private-music-album" onClick={() => setAlbumTarget(album)}>{track.album}</button> : <span className="track-album private-music-album">{track.album}</span> })()}<span>{formatDuration(track.duration)}</span>
         <div className="track-actions">{track.missing && <button onClick={() => void relocate(track)} title="重新定位"><LocateFixed size={16} /></button>}<button disabled={track.missing} onClick={() => void window.sylunae?.music.showInFolder(track.path)} title="在文件夹中显示"><FolderOpen size={16} /></button><button disabled={track.missing} onClick={() => setEditTarget(track)} title="编辑元信息"><PencilLine size={16} /></button><button onClick={() => setRemoveTarget(track)} title="移除索引"><Trash2 size={16} /></button></div>
@@ -204,6 +299,34 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
     {editTarget && <MusicMetadataSheet track={editTarget} albums={albums} onClose={() => setEditTarget(null)} onSave={saveMetadata} />}
     {albumTarget && <MusicAlbumSheet album={albumTarget} tracks={tracks.filter((track) => track.albumId === albumTarget.id)} onClose={() => setAlbumTarget(null)} onSave={(cover) => saveAlbumCover(albumTarget.id, cover)} onPlay={(track) => { void playTrack(track, albumTarget.id); setAlbumTarget(null) }} />}
     <MusicImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={addImportedTracks} />
+    <Dialog open={createAlbumOpen} onOpenChange={setCreateAlbumOpen}>
+      <DialogContent className="music-album-action-dialog">
+        <DialogHeader><DialogTitle>新建专辑</DialogTitle><DialogDescription>创建一个专辑，可以先留空，之后再把歌曲加入。</DialogDescription></DialogHeader>
+        <div className="music-album-action-fields">
+          <label htmlFor="new-music-album-title">专辑名称</label>
+          <Input id="new-music-album-title" autoFocus value={newAlbumTitle} onChange={(event) => { setNewAlbumTitle(event.target.value); setCreateAlbumError('') }} onKeyDown={(event) => { if (event.key === 'Enter') createAlbum() }} placeholder="输入专辑名称" />
+          <label htmlFor="new-music-album-artist">艺术家</label>
+          <Input id="new-music-album-artist" value={newAlbumArtist} onChange={(event) => setNewAlbumArtist(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') createAlbum() }} placeholder="可选" />
+          {createAlbumError && <p className="music-import-error">{createAlbumError}</p>}
+        </div>
+        <DialogFooter><Button variant="outline" onClick={() => setCreateAlbumOpen(false)}>取消</Button><Button onClick={createAlbum} disabled={!newAlbumTitle.trim()}>创建专辑</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={assignAlbumOpen} onOpenChange={setAssignAlbumOpen}>
+      <DialogContent className="music-album-action-dialog">
+        <DialogHeader><DialogTitle>加入专辑</DialogTitle><DialogDescription>将选中的 {selectedTrackIds.size} 首歌曲移入所选专辑。</DialogDescription></DialogHeader>
+        <div className="music-album-action-fields">
+          <label htmlFor="assign-music-album">目标专辑</label>
+          <Select value={assignAlbumId} onValueChange={setAssignAlbumId}>
+            <SelectTrigger id="assign-music-album"><SelectValue placeholder="选择专辑" /></SelectTrigger>
+            <SelectContent>{albums.map((album) => <SelectItem key={album.id} value={album.id}>{album.title} · {album.artist}</SelectItem>)}</SelectContent>
+          </Select>
+          <p className="music-import-hint">歌曲会从原专辑移出；音频文件和其它信息不会更改。</p>
+        </div>
+        <DialogFooter><Button variant="outline" onClick={() => setAssignAlbumOpen(false)}>取消</Button><Button onClick={addSelectedTracksToAlbum} disabled={!assignAlbumId || !selectedTrackIds.size}>加入专辑</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
     <ConfirmDialog open={Boolean(removeTarget)} onOpenChange={(open) => { if (!open) setRemoveTarget(null) }} title="从资料库移除？" description={removeTarget ? <><span>将移除《</span><span className="private-music-title">{removeTarget.title}</span><span>》的索引，原始音乐文件不会被删除。</span></> : ''} confirmLabel="移除索引" destructive icon={<Trash2 />} onConfirm={() => { if (removeTarget) remove(removeTarget); setRemoveTarget(null) }} />
+    <ConfirmDialog open={removeSelectedOpen} onOpenChange={setRemoveSelectedOpen} title={`移除选中的 ${selectedTrackIds.size} 首歌曲？`} description="只会从音乐资料库中移除这些歌曲的索引，原始音频文件不会被删除。" confirmLabel="移除索引" destructive icon={<Trash2 />} onConfirm={removeSelectedTracks} />
   </section>
 }

@@ -39,7 +39,7 @@ const bangumiItemSchema = z.object({
   epStatus: z.number(), volStatus: z.number(), totalEpisodes: z.number(), airDate: z.string(), platform: z.string(), updatedAt: timestamp, url: z.string(),
 })
 const trackSchema = z.object({ id: z.string(), path: z.string(), title: z.string(), artist: z.string(), album: z.string(), albumArtist: z.string().optional().default(''), albumId: z.string().nullable().optional().default(null), duration: z.number().nonnegative(), cover: z.string(), missing: z.boolean(), createdAt: timestamp, updatedAt: timestamp })
-const albumSchema = z.object({ id: z.string(), title: z.string(), artist: z.string(), cover: z.string(), createdAt: timestamp, updatedAt: timestamp })
+const albumSchema = z.object({ id: z.string(), title: z.string(), artist: z.string(), cover: z.string(), createdAt: timestamp, updatedAt: timestamp, keepEmpty: z.boolean().optional().default(false) })
 const folderSchema = z.object({ id: z.string(), name: z.string(), createdAt: timestamp, updatedAt: timestamp })
 const noteSchema = z.object({ id: z.string(), title: z.string(), content: jsonContentSchema, folderId: z.string().nullable(), tags: z.array(z.string()), pinned: z.boolean(), deletedAt: timestamp.nullable(), createdAt: timestamp, updatedAt: timestamp })
 const milestoneSchema = z.object({ id: z.string(), title: z.string(), dueDate: z.string(), completed: z.boolean(), progress: z.number().min(0).max(100).optional().default(0), weight: z.number().nonnegative().optional().default(1), createdAt: timestamp, updatedAt: timestamp })
