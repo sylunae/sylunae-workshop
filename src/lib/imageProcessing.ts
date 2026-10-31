@@ -49,5 +49,5 @@ export async function encodeImage(file: File, edits: ImageEdits, format: string,
 
 export function outputName(name: string, format: string) {
   if (format === 'original') return name
-  return `${name.replace(/\.[^.]+$/, '')}-处理.${format === 'image/jpeg' ? 'jpg' : format.split('/')[1]}`
+  return `${name.replace(/\.[^.]+$/, '')}.${format === 'image/jpeg' ? 'jpg' : format.split('/')[1]}`
 }

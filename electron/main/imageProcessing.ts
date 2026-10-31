@@ -103,7 +103,7 @@ export function registerImageProcessing() {
       for (const [index, source] of sources.entries()) {
         try {
           const extension = format === 'image/jpeg' ? 'jpg' : format.split('/')[1]
-          const name = level === 'original' ? basename(source) : `${basename(source, extname(source))}-处理.${extension}`
+          const name = level === 'original' ? basename(source) : `${basename(source, extname(source))}.${extension}`
           const path = join(staging, `${index}-${name}`)
           if (level === 'original') await copyFile(source, path)
           else {

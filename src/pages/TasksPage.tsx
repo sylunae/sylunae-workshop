@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import confetti, { type Options as ConfettiOptions } from 'canvas-confetti'
 import { CalendarClock, CalendarDays, CakeSlice, Check, ChevronDown, Circle, Clock3, Flag, FolderOpen, Heart, History, Image as ImageIcon, ListTodo, Pause, Pencil, Pin, Plane, Play, Plus, Repeat2, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Star, Target, TimerReset, Trash2, TrendingUp } from 'lucide-react'
 import { useAppStore } from '../app/AppStore'
-import type { CountdownAccent, CountdownCategory, CountdownEvent, CountdownMode, CountdownRepeat, PomodoroMode, QuickTodo, RecurringTodo, RecurringTodoFrequency } from '../shared/types'
+import type { CountdownAccent, CountdownCategory, CountdownEvent, CountdownMode, CountdownRepeat, PomodoroMode, QuickTodo, RecurringTodo, RecurringTodoFrequency, TodoPriority } from '../shared/types'
 import { newId, nowIso } from '../utils'
 import { countdownResult, preciseCountdownParts, type CountdownResult } from '../countdowns/countdown'
 import { localDateKey, occursOnDate, recurringLabel } from '../todos/recurring'
+import { compareQuickTodos, compareTodoPriority, nextTodoPriority, todoPriorityLabel } from '../todos/priority'
 import { GoalsPage } from './GoalsPage'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DatePicker } from '../components/DatePicker'
@@ -61,11 +62,23 @@ function TodoPanel() {
   const [editingRoutine, setEditingRoutine] = useState<RecurringTodo | null>(null)
   const [showAllRoutines, setShowAllRoutines] = useState(false)
   const [routineSaveNotice, setRoutineSaveNotice] = useState('')
+  // Keep the pre-edit priority for sorting until this panel is left and remounted.
+  const [sortingPriorities, setSortingPriorities] = useState<Map<string, TodoPriority>>(() => new Map())
+  const preserveSortPriority = (key: string, priority: TodoPriority) => setSortingPriorities((current) => current.has(key) ? current : new Map(current).set(key, priority))
   const today = useTodayKey()
   const inputRef = useRef<HTMLInputElement>(null)
-  const visible = useMemo(() => [...todos].sort((a, b) => Number(a.completed) - Number(b.completed) || (a.completed ? (b.completedAt ?? b.updatedAt).localeCompare(a.completedAt ?? a.updatedAt) : b.createdAt.localeCompare(a.createdAt))), [todos])
+  const visible = useMemo(() => [...todos].sort((a, b) => compareQuickTodos(
+    { ...a, priority: sortingPriorities.get(`todo:${a.id}`) ?? a.priority },
+    { ...b, priority: sortingPriorities.get(`todo:${b.id}`) ?? b.priority },
+  )), [todos, sortingPriorities])
   const todayRoutines = useMemo(() => routines.filter((routine) => occursOnDate(routine, today)), [routines, today])
-  const displayedRoutines = showAllRoutines ? routines : todayRoutines
+  const displayedRoutines = useMemo(() => [...(showAllRoutines ? routines : todayRoutines)].sort((a, b) => {
+    const completed = (id: string) => completionRecords.some((record) => record.recurringTodoId === id && record.occurrenceDate === today)
+    return Number(completed(a.id)) - Number(completed(b.id)) || compareTodoPriority(
+      { priority: sortingPriorities.get(`routine:${a.id}`) ?? a.priority },
+      { priority: sortingPriorities.get(`routine:${b.id}`) ?? b.priority },
+    )
+  }), [showAllRoutines, routines, todayRoutines, completionRecords, today, sortingPriorities])
   useEffect(() => {
     const timer = window.setTimeout(() => inputRef.current?.focus(), 50)
     return () => window.clearTimeout(timer)
@@ -125,18 +138,24 @@ function TodoPanel() {
     <div className="todo-list routine-list">{displayedRoutines.length ? displayedRoutines.map((routine) => {
       const completion = routineCompletion(routine.id)
       const dueToday = occursOnDate(routine, today)
-      return <div className={`todo-row ${completion ? 'completed' : ''}`} key={routine.id}><button className={`todo-check ${dueToday ? '' : 'routine-not-due'}`} onClick={(event) => toggleRoutine(routine, event.currentTarget)} disabled={!dueToday} aria-label={dueToday ? (completion ? '恢复例行待办' : '完成例行待办') : '今天不需要完成'}>{completion ? <Check size={16} /> : <Circle size={18} />}</button><div className="todo-copy"><strong className="todo-title user-content">{routine.title}</strong><div className="todo-meta-line"><span className="todo-routine-tag"><Repeat2 size={11} />{recurringLabel(routine)}</span>{!dueToday && <span className="todo-time-line">今天不需要完成</span>}{completion && <span className="todo-time-line"><Clock3 size={11} />完成于 {formatTodoTimestamp(completion.completedAt)}</span>}</div></div><button className="icon-button todo-routine-edit" onClick={() => { setEditingRoutine(routine); setRoutineDialogOpen(true) }} aria-label="编辑例行待办"><Pencil size={15} /></button></div>
+      return <div className={`todo-row priority-${routine.priority} ${completion ? 'completed' : ''}`} key={routine.id}><button className={`todo-check ${dueToday ? '' : 'routine-not-due'}`} onClick={(event) => toggleRoutine(routine, event.currentTarget)} disabled={!dueToday} aria-label={dueToday ? (completion ? '恢复例行待办' : '完成例行待办') : '今天不需要完成'}>{completion ? <Check size={16} /> : <Circle size={18} />}</button><div className="todo-copy"><strong className="todo-title user-content">{routine.title}</strong><div className="todo-meta-line"><span className="todo-routine-tag"><Repeat2 size={11} />{recurringLabel(routine)}</span>{!dueToday && <span className="todo-time-line">今天不需要完成</span>}{completion && <span className="todo-time-line"><Clock3 size={11} />完成于 {formatTodoTimestamp(completion.completedAt)}</span>}</div></div><TodoPriorityButton priority={routine.priority} title={routine.title} onChange={(priority) => { preserveSortPriority(`routine:${routine.id}`, routine.priority); update((state) => ({ ...state, recurringTodos: state.recurringTodos.map((item) => item.id === routine.id ? { ...item, priority, updatedAt: nowIso() } : item) })) }} /><button className="icon-button todo-routine-edit" onClick={() => { setEditingRoutine(routine); setRoutineDialogOpen(true) }} aria-label="编辑例行待办"><Pencil size={15} /></button></div>
     }) : <div className="routine-empty"><Repeat2 size={18} /><span>{showAllRoutines ? '还没有例行待办，添加一件规律的小事吧。' : '今天没有例行待办；可切换到全部例行查看后续安排。'}</span></div>}</div>
-    <div className="todo-section-heading"><span>临时待办</span><small>想到就记，完成就划掉</small></div>
+    <div className="todo-section-heading"><span>临时待办</span><small>完成 24 小时后自动删除</small></div>
     <div className="todo-quick-composer"><Plus size={19} /><Input ref={inputRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) add() }} placeholder="现在要做什么？按 Enter 添加" aria-label="快速添加待办" /><kbd>Enter</kbd></div>
-    <div className="todo-list quick-list">{visible.length ? visible.map((todo) => <div className={`todo-row ${todo.completed ? 'completed' : ''}`} key={todo.id}>
+    <div className="todo-list quick-list">{visible.length ? visible.map((todo) => <div className={`todo-row priority-${todo.priority} ${todo.completed ? 'completed' : ''}`} key={todo.id}>
       <button className="todo-check" onClick={(event) => toggle(todo, event.currentTarget)} aria-label={todo.completed ? '恢复待办' : '完成待办'}>{todo.completed ? <Check size={16} /> : <Circle size={18} />}</button>
       <div className="todo-copy"><TodoTitleInput todo={todo} onSave={(title) => patch(todo.id, { title })} /><div className="todo-meta-line"><span className="todo-time-line"><Clock3 size={11} />{todo.completed && todo.completedAt ? `完成于 ${formatTodoTimestamp(todo.completedAt)} · 用时 ${formatTodoDuration(Math.max(0, (new Date(todo.completedAt).getTime() - new Date(todo.createdAt).getTime()) / 3600000))}` : `创建于 ${formatTodoTimestamp(todo.createdAt)} · 已存留 ${formatTodoDuration(Math.max(0, (Date.now() - new Date(todo.createdAt).getTime()) / 3600000))}`}</span></div></div>
+      <TodoPriorityButton priority={todo.priority} title={todo.title} onChange={(priority) => { preserveSortPriority(`todo:${todo.id}`, todo.priority); patch(todo.id, { priority }) }} />
       <button className="icon-button danger todo-remove" onClick={() => remove(todo.id)} aria-label="删除待办"><Trash2 size={16} /></button>
     </div>) : <div className="compact-empty"><ListTodo size={28} /><strong>这里很清爽</strong><span>输入一件小事，按下 Enter 就记好了。</span></div>}</div>
     <section className="todo-review" aria-label="待办复盘"><div className="todo-review-heading"><div><Sparkles size={17} /><div><strong>清单复盘</strong><small>了解自己的节奏</small></div></div></div><div className="todo-review-grid"><TodoInsight icon={<Check />} value={String(completedToday)} label="今天完成" /><TodoInsight icon={<TrendingUp />} value={String(completedRecently.length + completedRoutineRecently.length)} label="近 7 天完成" /><TodoInsight icon={<History />} value={timedCompleted.length ? formatTodoDuration(averageHours) : '—'} label="平均完成用时" /><TodoInsight icon={<Clock3 />} value={oldest ? (oldestDays ? `${oldestDays} 天` : '今天') : '—'} label="最长等待" /></div><p>{insight}</p></section>
     <RoutineDialog open={routineDialogOpen} routine={editingRoutine} onOpenChange={(open) => { setRoutineDialogOpen(open); if (!open) setEditingRoutine(null) }} onSave={saveRoutine} onDelete={editingRoutine ? () => { deleteRoutine(editingRoutine); setRoutineDialogOpen(false); setEditingRoutine(null) } : undefined} />
   </div>
+}
+
+function TodoPriorityButton({ priority, title, onChange }: { priority: TodoPriority; title: string; onChange: (priority: TodoPriority) => void }) {
+  const next = nextTodoPriority(priority)
+  return <Button type="button" variant="ghost" className={`todo-priority priority-${priority}`} onClick={() => onChange(next)} aria-label={`${title}：${todoPriorityLabel[priority]}优先级，点击切换为${todoPriorityLabel[next]}优先级`}><Flag size={14} fill={priority === 'high' ? 'currentColor' : 'none'} /><span>{todoPriorityLabel[priority]}</span></Button>
 }
 
 function useTodayKey(): string {

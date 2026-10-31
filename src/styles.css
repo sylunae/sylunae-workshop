@@ -683,6 +683,15 @@ input, textarea, select { color: var(--text); }
 .todo-row:last-child { border-bottom: 0; }
 .todo-row:hover { background: var(--surface-2); }
 .todo-row.completed { opacity: .56; background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
+.todo-row.priority-medium:not(.completed) { background: linear-gradient(90deg, color-mix(in srgb, var(--goal-root-soft) 36%, transparent), transparent 42%); box-shadow: inset 2px 0 color-mix(in srgb, var(--goal-root) 42%, transparent); }
+.todo-row.priority-high:not(.completed) { background: linear-gradient(90deg, color-mix(in srgb, var(--goal-root-soft) 72%, transparent), transparent 42%); box-shadow: inset 3px 0 var(--goal-root); }
+.todo-row.priority-medium:not(.completed):hover { background: linear-gradient(90deg, color-mix(in srgb, var(--goal-root-soft) 60%, transparent), var(--surface-2)); }
+.todo-row.priority-high:not(.completed):hover { background: linear-gradient(90deg, var(--goal-root-soft), color-mix(in srgb, var(--goal-root-soft) 18%, transparent) 56%); }
+.todo-row.priority-high:not(.completed) .todo-title, .todo-row.priority-high:not(.completed) .todo-copy input { color: var(--goal-root); }
+.todo-priority { min-width: 54px; min-height: 32px; gap: 5px; padding: 0 8px; color: var(--muted-text); font-size: 13px; }
+.todo-priority.priority-medium { color: var(--goal-root); }
+.todo-priority.priority-high { background: var(--goal-root-soft); color: var(--goal-root); }
+.todo-priority:hover { background: var(--goal-root-soft); color: var(--goal-root); }
 .todo-check { width: 32px; height: 32px; flex: 0 0 32px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted-text); }
 .todo-row.completed .todo-check { background: var(--success-soft); color: var(--success); }
 .todo-copy { min-width: 0; flex: 1; }

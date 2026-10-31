@@ -34,7 +34,7 @@ describe('image processing geometry', () => {
     } finally { vi.unstubAllGlobals() }
   })
   it('uses a distinct output name and preserves names containing dots', () => {
-    expect(outputName('旅行.原图.png', 'image/jpeg')).toBe('旅行.原图-处理.jpg')
-    expect(outputName('photo', 'image/webp')).toBe('photo-处理.webp')
+    expect(outputName('旅行.原图.png', 'image/jpeg')).toBe('旅行.原图.jpg')
+    expect(outputName('photo', 'image/webp')).toBe('photo.webp')
   })
 })

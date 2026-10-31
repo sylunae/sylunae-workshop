@@ -85,7 +85,7 @@ describe('desktop image output', () => {
     state.selected = join(state.root, 'output')
     await call('pick-directory')
     await call('save-folder')
-    expect((await sharp(await readFile(join(state.selected, 'valid-处理.webp'))).metadata()).format).toBe('webp')
+    expect((await sharp(await readFile(join(state.selected, 'valid.webp'))).metadata()).format).toBe('webp')
   })
   it('keeps the previous directory when the picker is cancelled', async () => {
     const original = await call('get-directory')

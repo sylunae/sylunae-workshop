@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { repository } from '../data/repository'
 import { changedSnapshotSections, snapshotPatchEntries } from '../data/snapshotSections'
 import type { AppSnapshot, AppSnapshotPatch } from '../shared/types'
+import { removeExpiredTodos, todoExpiresAt } from '../todos/cleanup'
 
 interface AppStoreValue {
   snapshot: AppSnapshot | null
@@ -67,6 +68,32 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return next
     })
   }, [drainPending])
+
+  const todos = snapshot?.todos
+  useEffect(() => {
+    if (!todos) return
+    let cleanupTimer: ReturnType<typeof setTimeout>
+    const sweep = () => {
+      clearTimeout(cleanupTimer)
+      const now = Date.now()
+      update((current) => {
+        const remaining = removeExpiredTodos(current.todos, now)
+        return remaining === current.todos ? current : { ...current, todos: remaining }
+      })
+      // Recheck after sleep or clock changes, even while another page is open.
+      const expirations = (latest.current?.todos ?? []).map(todoExpiresAt).filter((time): time is number => time !== null && time > now)
+      const delay = expirations.reduce((next, time) => Math.min(next, time - now), 60_000)
+      cleanupTimer = setTimeout(sweep, delay)
+    }
+    sweep()
+    window.addEventListener('focus', sweep)
+    document.addEventListener('visibilitychange', sweep)
+    return () => {
+      clearTimeout(cleanupTimer)
+      window.removeEventListener('focus', sweep)
+      document.removeEventListener('visibilitychange', sweep)
+    }
+  }, [todos, update])
 
   const flush = useCallback(async () => {
     await drainPending()
