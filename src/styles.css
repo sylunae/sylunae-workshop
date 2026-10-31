@@ -1158,6 +1158,12 @@ input, textarea, select { color: var(--text); }
 .image-source-list { display: flex; gap: 10px; padding-bottom: 12px; overflow-x: auto; }
 .image-source-item { display: flex; align-items: center; flex: 0 0 175px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
 .image-source-item.active { border-color: var(--brand); }
+.image-naming, .image-naming label { display: grid; gap: 8px; font-size: 14px; }
+.image-naming .image-recursive { display: flex; }
+.image-naming p { margin: 0; }
+.image-naming-numbers { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.image-naming-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.image-naming-preview { color: var(--muted-text); overflow-wrap: anywhere; font-size: 14px; }
 .image-source-item > button:first-child { min-width: 0; padding: 8px; display: flex; gap: 8px; align-items: center; text-align: left; flex: 1; }
 .image-source-item img { width: 38px; height: 38px; object-fit: contain; }
 .image-source-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
@@ -2414,3 +2420,14 @@ input[type='range'] { height: 3px; accent-color: var(--brand); }
 .virtual-note-list { flex: 1; min-height: 0; overflow-anchor: none; }
 .virtual-note-list > button { height: var(--note-row-height); min-height: var(--note-row-height); box-sizing: border-box; }
 .virtual-note-list > div { flex-shrink: 0; }
+
+.image-results-toolbar { display: grid; gap: 14px; margin-bottom: 18px; }
+.image-results-toolbar > p { margin: 0; color: var(--muted-text); font-size: 14px; }
+.image-results-toolbar .image-naming { padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.image-results-toolbar .image-naming > label:not(.image-recursive) { max-width: 560px; }
+.image-results-toolbar .image-naming-numbers { max-width: 560px; }
+.image-result-card[draggable="true"] { cursor: grab; touch-action: none; }
+.image-result-card[draggable="true"] > button:first-child { cursor: inherit; }
+.image-result-card.is-dragging { opacity: .45; cursor: grabbing; }
+.image-result-card.is-drop-target { border-color: var(--brand); outline: 2px solid var(--brand); outline-offset: 2px; }
+.image-result-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }

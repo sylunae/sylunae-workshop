@@ -1,3 +1,4 @@
+import { imageDownloadNames } from '../shared/imageNaming'
 import { describe, expect, it, vi } from 'vitest'
 import { centeredCrop, outputDimensions, outputName, encodeImage } from '../lib/imageProcessing'
 
@@ -36,5 +37,20 @@ describe('image processing geometry', () => {
   it('uses a distinct output name and preserves names containing dots', () => {
     expect(outputName('旅行.原图.png', 'image/jpeg')).toBe('旅行.原图.jpg')
     expect(outputName('photo', 'image/webp')).toBe('photo.webp')
+  })
+})
+
+
+describe('image download naming', () => {
+  it('supports zero-based padded sequences, templates, steps, and original extensions', () => {
+    expect(imageDownloadNames(['a.png', 'b.jpg', 'c.webp'], { template: '{n}', start: 0, digits: 2, step: 1 })).toEqual(['00.png', '01.jpg', '02.webp'])
+    expect(imageDownloadNames(['旅行.原图.png', 'b.jpg'], { template: '相册-{n}-{name}-精选', start: 1, digits: 3, step: 2 })).toEqual(['相册-001-旅行.原图-精选.png', '相册-003-b-精选.jpg'])
+    expect(imageDownloadNames(['a.png', 'b.png'], { template: '{n}', start: 99, digits: 2, step: 1 })).toEqual(['99.png', '100.png'])
+  })
+  it('uses safe portable filenames and resolves case-insensitive collisions', () => {
+    expect(imageDownloadNames(['a.png', 'b.png'], { template: '../CON', start: 0, digits: 2, step: 1 })).toEqual(['.._CON.png', '.._CON (1).png'])
+    expect(imageDownloadNames(['CON.png', 'Photo.png', 'photo.png'])).toEqual(['_CON.png', 'Photo.png', 'photo (1).png'])
+    expect(() => imageDownloadNames(['a.png'], { template: '{n}', start: -1, digits: 2, step: 1 })).toThrow('起始编号')
+    expect(() => imageDownloadNames(['a.png'], { template: '{n}', start: 0, digits: 99, step: 1 })).toThrow('编号位数')
   })
 })

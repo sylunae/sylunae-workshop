@@ -1,3 +1,4 @@
+import type { ImageNamingRule } from './imageNaming'
 import type { JSONContent } from '@tiptap/react'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
@@ -583,8 +584,8 @@ export interface PartialBackupEnvelope {
   payload: unknown
 }
 
-export interface ImageFolderSummary { path: string; count: number; bytes: number; formats: Record<string, number>; recursive: boolean }
-export interface ImageFolderOutput { count: number; bytes: number; errors: string[] }
+export interface ImageFolderSummary { path: string; count: number; bytes: number; formats: Record<string, number>; recursive: boolean; files?: string[] }
+export interface ImageFolderOutput { count: number; bytes: number; errors: string[]; files?: string[] }
 
 export interface SylunaeAPI {
   platform: 'electron'
@@ -592,8 +593,8 @@ export interface SylunaeAPI {
     rememberImport: (file: File) => Promise<void>
     pickFolder: () => Promise<ImageFolderSummary | null>
     scanFolder: (recursive: boolean) => Promise<ImageFolderSummary>
-    processFolder: (format: string, level: string) => Promise<ImageFolderOutput>
-    saveFolder: () => Promise<{ count: number; errors: string[] }>
+    processFolder: (format: string, level: string, order?: number[]) => Promise<ImageFolderOutput>
+    saveFolder: (rule?: ImageNamingRule, order?: number[]) => Promise<{ count: number; errors: string[] }>
     getDirectory: () => Promise<string>
     pickDirectory: () => Promise<string | null>
     openDirectory: () => Promise<void>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react'
 import { Crop, Download, FileImage, FolderOpen, Check, Upload, RotateCcw, RotateCw, Trash2, X } from 'lucide-react'
 import { Button } from './ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
@@ -7,6 +7,8 @@ import { Input } from './ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog'
 import type { ImageFolderSummary, ImageFolderOutput } from '../shared/types'
 import { centeredCrop, encodeImage, outputName, encodingQuality, type EncodingLevel, type CropRect, type ImageEdits } from '../lib/imageProcessing'
+
+import { imageDownloadNames, moveImage, validateImageNaming, type ImageNamingRule } from '../shared/imageNaming'
 
 interface SourceImage extends ImageEdits { id: string; file: File; url: string; width: number; height: number }
 interface EncodedImage { id: string; name: string; blob: Blob; url: string; width: number; height: number; originalSize: number }
@@ -24,6 +26,60 @@ function CropNumberInput({ label, value, min, onCommit }: { label: string; value
     onBlur={() => { editing.current = false; const number = Number(draft); if (draft !== '' && Number.isFinite(number)) onCommit(Math.round(number)); setDraft(String(Math.round(value))) }} /></label>
 }
 
+// Native drag on desktop; touch/pen use the same drop targets without extra controls.
+function useResultSorting(onMove: (from: string, to: string) => void, disabled: boolean) {
+  const [dragged, setDragged] = useState<string | null>(null)
+  const [target, setTarget] = useState<string | null>(null)
+  const source = useRef<string | null>(null)
+  const touch = useRef<{ x: number; y: number; id: string; target: string; moved: boolean } | null>(null)
+  const suppressClick = useRef(false)
+  const finish = () => { source.current = null; touch.current = null; setDragged(null); setTarget(null); window.setTimeout(() => { suppressClick.current = false }, 0) }
+  const props = (id: string) => ({
+    'data-sort-id': id,
+    draggable: !disabled,
+    tabIndex: 0,
+    className: `image-result-card${dragged === id ? ' is-dragging' : ''}${target === id && dragged !== id ? ' is-drop-target' : ''}`,
+    onDragStart: (event: DragEvent<HTMLElement>) => {
+      if (disabled || touch.current || (event.target as HTMLElement).closest('[data-no-sort]')) { event.preventDefault(); return }
+      source.current = id; suppressClick.current = true; setDragged(id)
+      event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id)
+    },
+    onDragOver: (event: DragEvent<HTMLElement>) => {
+      if (disabled || !source.current) return
+      event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTarget(id)
+    },
+    onDrop: (event: DragEvent<HTMLElement>) => {
+      if (!source.current || disabled) return
+      event.preventDefault(); event.stopPropagation(); onMove(source.current, id); finish()
+    },
+    onDragEnd: finish,
+    onClickCapture: (event: React.MouseEvent<HTMLElement>) => { if (suppressClick.current && !(event.target as HTMLElement).closest('[data-no-sort]')) { event.preventDefault(); event.stopPropagation() } },
+    onPointerDown: (event: PointerEvent<HTMLElement>) => {
+      if (disabled || event.pointerType === 'mouse' || (event.target as HTMLElement).closest('[data-no-sort]')) return
+      touch.current = { x: event.clientX, y: event.clientY, id, target: id, moved: false }
+    },
+    onPointerMove: (event: PointerEvent<HTMLElement>) => {
+      const current = touch.current
+      if (!current || disabled) return
+      if (!current.moved && Math.hypot(event.clientX - current.x, event.clientY - current.y) < 8) return
+      event.currentTarget.setPointerCapture(event.pointerId)
+      current.moved = true; suppressClick.current = true; setDragged(current.id)
+      const card = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-sort-id]')
+      if (card?.dataset.sortId) { current.target = card.dataset.sortId; setTarget(current.target) }
+    },
+    onPointerUp: () => { const current = touch.current; if (!current) return; if (current.moved && !disabled) onMove(current.id, current.target); finish() },
+    onPointerCancel: () => { if (touch.current) finish() },
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+      if (disabled || event.target !== event.currentTarget || !event.altKey || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return
+      const cards = Array.from(event.currentTarget.parentElement!.querySelectorAll<HTMLElement>('[data-sort-id]'))
+      const index = cards.indexOf(event.currentTarget)
+      const next = cards[index + (['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1)]
+      if (next?.dataset.sortId) { event.preventDefault(); onMove(id, next.dataset.sortId) }
+    },
+  })
+  return props
+}
+
 export function ImageProcessor() {
   const input = useRef<HTMLInputElement>(null)
   const resultSection = useRef<HTMLElement>(null)
@@ -35,6 +91,14 @@ export function ImageProcessor() {
   const [level, setLevel] = useState<EncodingLevel>('standard')
   const quality = encodingQuality(level)
   const [folder, setFolder] = useState<ImageFolderSummary | null>(null)
+  const [folderOrder, setFolderOrder] = useState<number[]>([])
+  const [customNaming, setCustomNaming] = useState(false)
+  const [template, setTemplate] = useState('{n}')
+  const [start, setStart] = useState('0')
+  const [digits, setDigits] = useState('2')
+  const [step, setStep] = useState('1')
+  const namingRule: ImageNamingRule | undefined = customNaming ? { template, start: start === '' ? NaN : Number(start), digits: digits === '' ? NaN : Number(digits), step: step === '' ? NaN : Number(step) } : undefined
+  const namingError = namingRule ? validateImageNaming(namingRule) : ''
   const [folderOutput, setFolderOutput] = useState<ImageFolderOutput | null>(null)
   const [notice, setNotice] = useState('')
   const [cropping, setCropping] = useState(false)
@@ -48,8 +112,20 @@ export function ImageProcessor() {
   const [error, setError] = useState('')
   const drag = useRef<{ x: number; y: number; previous: CropRect | null; mode: 'move' | 'draw' | 'resize'; corner?: string } | null>(null)
   const active = items.find((item) => item.id === activeId) ?? items[0]
-  const key = useMemo(() => JSON.stringify([items.map(({ id, crop, rotation }) => [id, crop, rotation]), format, level]), [items, format, level])
+  const key = useMemo(() => JSON.stringify([items.map(({ id, crop, rotation }) => [id, crop, rotation]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))), format, level]), [items, format, level])
   const currentPreview = preview?.key === key ? preview : null
+  const namedResults = useMemo(() => {
+    const names = imageDownloadNames(results.map((image) => image.name), namingError ? undefined : namingRule)
+    return results.map((image, index) => ({ ...image, name: names[index] }))
+  }, [results, customNaming, template, start, digits, step, namingError])
+  const displayedResult = namedResults.find((image) => image.id === viewResult?.id)
+  const sortResults = useResultSorting((from, to) => {
+    setResults((previous) => moveImage(previous, previous.findIndex((image) => image.id === from), previous.findIndex((image) => image.id === to)))
+  }, busy || loading)
+  const sortFolderResults = useResultSorting((from, to) => {
+    setFolderOrder((previous) => moveImage(previous, previous.indexOf(Number(from)), previous.indexOf(Number(to))))
+  }, busy || loading)
+  const folderNames = imageDownloadNames(folderOrder.map((index) => folderOutput?.files?.[index] ?? '图片.png'), namingError ? undefined : namingRule)
   const activePreview = currentPreview?.images.find((item) => item.id === active?.id)
   const makeUrl = (blob: Blob) => { const url = URL.createObjectURL(blob); urls.current.add(url); return url }
   const release = (url: string) => { URL.revokeObjectURL(url); urls.current.delete(url) }
@@ -61,7 +137,7 @@ export function ImageProcessor() {
 
   useEffect(() => {
     if (results.length) resultSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, [results])
+  }, [results.length])
 
   useEffect(() => {
     if (folder) return
@@ -153,13 +229,13 @@ export function ImageProcessor() {
       if (summary && alive.current) {
         items.forEach((item) => release(item.url)); results.forEach((item) => release(item.url))
         setItems([]); setResults([]); setViewResult(null); setCropping(false)
-        setFolder(summary); setFolderOutput(null); setNotice('')
+        setFolder(summary); setFolderOrder([]); setFolderOutput(null); setNotice('')
       }
     } catch (reason) { setError(errorLabel(reason)) }
     finally { setLoading(false) }
   }
-  const downloadAll = async (images: EncodedImage[] = results) => {
-    if (busy) return
+  const downloadAll = async (images: EncodedImage[] = namedResults) => {
+    if (busy || namingError) return
     setBusy(true)
     setError('')
     setNotice('')
@@ -167,7 +243,7 @@ export function ImageProcessor() {
       if (window.sylunae) {
         if (!await window.sylunae.imageProcessing.pickDirectory()) return
         if (folder) {
-          const saved = await window.sylunae.imageProcessing.saveFolder()
+          const saved = await window.sylunae.imageProcessing.saveFolder(namingRule, folderOrder)
           setNotice(`已下载 ${saved.count} 张图片`)
           setError(saved.errors.join('；'))
         } else {
@@ -200,7 +276,8 @@ export function ImageProcessor() {
     setNotice('')
     const exported: ResultImage[] = []
     try {
-      for (const [index, image] of currentPreview.images.entries()) {
+      const ordered = items.flatMap((item) => currentPreview.images.filter((image) => image.id === item.id))
+      for (const [index, image] of ordered.entries()) {
         setProgress(`${index + 1} / ${currentPreview.images.length}`)
         const result: ResultImage = { ...image, url: makeUrl(image.blob) }
         exported.push(result)
@@ -268,14 +345,39 @@ export function ImageProcessor() {
         <Button disabled={busy || loading || (folder ? !folder.count : !currentPreview?.images.length)} onClick={() => {
           if (!folder) { void exportImages(); return }
           setBusy(true); setError(''); setFolderOutput(null)
-          void window.sylunae!.imageProcessing.processFolder(format, level).then((output) => { if (alive.current) setFolderOutput(output) }).catch((reason) => setError(errorLabel(reason))).finally(() => { if (alive.current) setBusy(false) })
+          void window.sylunae!.imageProcessing.processFolder(format, level).then((output) => { if (alive.current) { setFolderOutput(output); setFolderOrder(Array.from({ length: output.files?.length ?? 0 }, (_, index) => index)) } }).catch((reason) => setError(errorLabel(reason))).finally(() => { if (alive.current) setBusy(false) })
         }}><FileImage size={16} />{busy ? `正在处理 ${progress}` : '生成输出结果'}</Button>
       </aside>
     </div>}
-    {folder && folderOutput && <section className="image-results"><div className="panel-heading"><h3>输出结果 · {folderOutput.count}</h3><Button disabled={busy || !folderOutput.count} onClick={() => void downloadAll()}><Download size={16} />一键下载全部结果</Button></div><p>共 {folderOutput.count} 张 · {sizeLabel(folderOutput.bytes)}</p>{folderOutput.errors.map((message) => <p className="image-processing-error" key={message}>{message}</p>)}</section>}
-    {!folder && results.length > 0 && <section ref={resultSection} className="image-results"><div className="panel-heading"><h3 aria-live="polite">输出结果 · {results.length}</h3><div><Button disabled={busy} onClick={() => void downloadAll()}><Download size={16} />一键下载全部结果</Button><Button variant="ghost" disabled={busy} onClick={() => { setViewResult(null); results.forEach((item) => release(item.url)); setResults([]) }}><Trash2 size={16} />清空结果</Button></div></div><div className="image-result-grid">{results.map((result) => <article className="image-result-card" key={result.id}><button onClick={() => setViewResult(result)}><img src={result.url} alt={result.name} /><strong>{result.name}</strong></button><span>{result.width} × {result.height} · {sizeLabel(result.blob.size)}</span><span>已生成 · 可下载</span><Button variant="outline" disabled={busy} onClick={() => void downloadAll([result])}><Download size={15} />下载</Button></article>)}</div></section>}
+    {(folder ? !!folderOutput : results.length > 0) && <section ref={resultSection} className="image-results">
+      <div className="panel-heading"><h3 aria-live="polite">输出结果 · {folder ? folderOutput!.count : results.length}</h3><div>
+        <Button disabled={busy || !!namingError || (folder ? !folderOutput!.count : !results.length)} onClick={() => void downloadAll()}><Download size={16} />一键下载全部结果</Button>
+        <Button variant="ghost" disabled={busy} onClick={() => { setViewResult(null); results.forEach((item) => release(item.url)); setResults([]); setFolderOutput(null); setFolderOrder([]) }}><Trash2 size={16} />清空结果</Button>
+      </div></div>
+      <div className="image-results-toolbar"><p id="image-sort-help">拖拽图片调整下载顺序，编号自动更新。</p>
+        <div className="image-naming">
+          <label className="image-recursive"><Checkbox checked={customNaming} disabled={busy || loading} onCheckedChange={(checked) => setCustomNaming(checked === true)} />自定义下载命名</label>
+          {customNaming && <>
+            <label>命名模板<Input value={template} disabled={busy || loading} onChange={(event) => setTemplate(event.target.value)} placeholder="例如 {n}-{name}" /></label>
+            <p className="image-level-help">{'{n} 为编号，{name} 为原文件名（不含扩展名）。可添加任意前后缀，扩展名自动保留。'}</p>
+            <div className="image-naming-numbers">{[{ label: '起始编号', value: start, setter: setStart, min: 0, max: 999999999 }, { label: '编号位数', value: digits, setter: setDigits, min: 1, max: 12 }, { label: '编号步长', value: step, setter: setStep, min: 1, max: 999999 }].map(({ label, value, setter, min, max }) => <label key={label}>{label}<Input type="number" min={min} max={max} value={value} disabled={busy || loading} onChange={(event) => setter(event.target.value)} /></label>)}</div>
+            <div className="image-naming-presets">{[['从 00 开始', '{n}', '0'], ['从 01 开始', '{n}', '1'], ['01-原名', '{n}-{name}', '1']].map(([label, pattern, first]) => <Button key={label} variant="outline" disabled={busy || loading} onClick={() => { setTemplate(pattern); setStart(first); setDigits('2'); setStep('1') }}>{label}</Button>)}</div>
+            {namingError ? <p className="image-processing-error" role="alert">{namingError}</p> : <p className="image-naming-preview">命名预览：{(folder ? folderNames : namedResults.map((image) => image.name)).slice(0, 3).join('、')}</p>}
+          </>}
+        </div>
+      </div>
+      {folder ? <>
+        <p>共 {folderOutput!.count} 张 · {sizeLabel(folderOutput!.bytes)}</p>
+        <div className="image-result-grid">{folderOrder.map((index, position) => <article key={index} {...sortFolderResults(String(index))} aria-label={folderNames[position]} aria-describedby="image-sort-help"><FileImage size={32} /><strong>{folderNames[position]}</strong></article>)}</div>
+        {folderOutput!.errors.map((message) => <p className="image-processing-error" key={message}>{message}</p>)}
+      </> : <div className="image-result-grid">{namedResults.map((result) => <article key={result.id} {...sortResults(result.id)} aria-label={result.name} aria-describedby="image-sort-help">
+        <button onClick={() => setViewResult(result)}><img src={result.url} alt={result.name} draggable={false} /><strong>{result.name}</strong></button>
+        <span>{result.width} × {result.height} · {sizeLabel(result.blob.size)}</span>
+        <Button data-no-sort variant="outline" disabled={busy || !!namingError} onClick={() => void downloadAll([result])}><Download size={15} />下载</Button>
+      </article>)}</div>}
+    </section>}
     {notice && <p role="status">{notice}</p>}
     <div className="privacy-note"><Check size={16} />图片处理均在设备本地完成，不会上传文件。</div>
-    <Dialog open={!!viewResult} onOpenChange={(open) => { if (!open) setViewResult(null) }}><DialogContent className="image-result-dialog" aria-describedby={undefined}><DialogHeader><DialogTitle>{viewResult?.name}</DialogTitle></DialogHeader>{viewResult && <><img src={viewResult.url} alt={viewResult.name} /><span>{viewResult.width} × {viewResult.height} · {sizeLabel(viewResult.blob.size)}</span><Button disabled={busy} onClick={() => void downloadAll([viewResult])}><Download size={16} />下载图片</Button></>}</DialogContent></Dialog>
+    <Dialog open={!!viewResult} onOpenChange={(open) => { if (!open) setViewResult(null) }}><DialogContent className="image-result-dialog" aria-describedby={undefined}><DialogHeader><DialogTitle>{displayedResult?.name}</DialogTitle></DialogHeader>{displayedResult && <><img src={displayedResult.url} alt={displayedResult.name} /><span>{displayedResult.width} × {displayedResult.height} · {sizeLabel(displayedResult.blob.size)}</span><Button disabled={busy || !!namingError} onClick={() => void downloadAll([displayedResult])}><Download size={16} />下载图片</Button></>}</DialogContent></Dialog>
   </div>
 }

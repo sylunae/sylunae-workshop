@@ -1,9 +1,11 @@
 import { app, dialog, ipcMain, shell } from 'electron'
 import { copyFile, mkdir, mkdtemp, open, readFile, readdir, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, join } from 'node:path'
+import { basename, dirname, extname, join, relative } from 'node:path'
 
 import sharp from 'sharp'
 import type { ImageFolderSummary } from '../../src/shared/types'
+
+import { imageDownloadNames, type ImageNamingRule } from '../../src/shared/imageNaming'
 
 let lastImport = ''
 let sourceFolder = ''
@@ -65,6 +67,8 @@ async function scanFolder(recursive: boolean, selectedFolder = sourceFolder): Pr
     }
   }
   await visit(selectedFolder)
+  files.sort((a, b) => relative(selectedFolder, a).localeCompare(relative(selectedFolder, b), 'zh-CN', { numeric: true }))
+  summary.files = files.map((file) => relative(selectedFolder, file))
   sourceFolder = selectedFolder
   sources = files
   summary.count = files.length
@@ -92,15 +96,17 @@ export function registerImageProcessing() {
     if (folderBusy || typeof recursive !== 'boolean') throw new Error('无法扫描文件夹')
     return scanFolder(recursive)
   })
-  ipcMain.handle('image-processing:process-folder', async (_event, format: string, level: string) => {
+  ipcMain.handle('image-processing:process-folder', async (_event, format: string, level: string, order?: number[]) => {
     if (folderBusy || !sources.length || !['image/png', 'image/jpeg', 'image/webp'].includes(format) || !['strong', 'standard', 'original'].includes(level)) throw new Error('无效的批处理参数')
+    if (order && (!Array.isArray(order) || order.length !== sources.length || new Set(order).size !== sources.length || order.some((index) => !Number.isInteger(index) || index < 0 || index >= sources.length))) throw new Error('无效的图片顺序')
+    const orderedSources = order ? order.map((index) => sources[index]) : sources
     folderBusy = true
     try {
       await clearStaging()
       staging = await mkdtemp(join(app.getPath('temp'), 'sylunae-images-'))
       generated = []
       const output = { count: 0, bytes: 0, errors: [] as string[] }
-      for (const [index, source] of sources.entries()) {
+      for (const [index, source] of orderedSources.entries()) {
         try {
           const extension = format === 'image/jpeg' ? 'jpg' : format.split('/')[1]
           const name = level === 'original' ? basename(source) : `${basename(source, extname(source))}.${extension}`
@@ -119,16 +125,19 @@ export function registerImageProcessing() {
           output.bytes += (await stat(path)).size
         } catch (error) { output.errors.push(`${source}：${error instanceof Error ? error.message : '处理失败'}`) }
       }
-      return output
+      return { ...output, files: generated.map((item) => item.name) }
     } finally { folderBusy = false }
   })
-  ipcMain.handle('image-processing:save-folder', async () => {
+  ipcMain.handle('image-processing:save-folder', async (_event, rule?: ImageNamingRule, order?: number[]) => {
     if (folderBusy) throw new Error('正在处理，请稍候')
     folderBusy = true
     try {
       const output = { count: 0, errors: [] as string[] }
-      for (const item of generated) {
-        try { await saveImage(item.name, await readFile(item.path)); output.count++ }
+      if (order && (!Array.isArray(order) || order.length !== generated.length || new Set(order).size !== generated.length || order.some((index) => !Number.isInteger(index) || index < 0 || index >= generated.length))) throw new Error('无效的图片顺序')
+      const ordered = order ? order.map((index) => generated[index]) : generated
+      const names = imageDownloadNames(ordered.map((item) => item.name), rule)
+      for (const [index, item] of ordered.entries()) {
+        try { await saveImage(names[index], await readFile(item.path)); output.count++ }
         catch (error) { output.errors.push(`${item.name}：${error instanceof Error ? error.message : '保存失败'}`) }
       }
       return output
