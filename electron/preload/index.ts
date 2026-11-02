@@ -3,6 +3,14 @@ import type { AppSnapshot, AppSnapshotPatch, ImageScanProgress, MediaToolsProgre
 
 const api: SylunaeAPI = {
   platform: 'electron',
+  formatConversion: {
+    capabilities: () => ipcRenderer.invoke('conversion:capabilities'),
+    inspect: (file) => ipcRenderer.invoke('conversion:inspect', webUtils.getPathForFile(file)),
+    convert: (id, target, quality) => ipcRenderer.invoke('conversion:convert', id, target, quality),
+    save: (ids) => ipcRenderer.invoke('conversion:save', ids),
+    release: (ids) => ipcRenderer.invoke('conversion:release', ids),
+    cancel: () => ipcRenderer.invoke('conversion:cancel'),
+  },
   imageProcessing: {
     rememberImport: (file) => ipcRenderer.invoke('image-processing:remember-import', webUtils.getPathForFile(file)),
     pickFolder: () => ipcRenderer.invoke('image-processing:pick-folder'),

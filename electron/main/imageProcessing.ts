@@ -75,10 +75,10 @@ async function scanFolder(recursive: boolean, selectedFolder = sourceFolder): Pr
   return summary
 }
 
-export function registerImageProcessing() {
+export function registerImageProcessing(cleanOtherTools?: () => Promise<void>) {
   app.once('before-quit', (event) => {
     event.preventDefault()
-    void clearStaging().catch(() => {}).finally(() => app.quit())
+    void Promise.allSettled([clearStaging(), cleanOtherTools?.()]).finally(() => app.quit())
   })
   ipcMain.handle('image-processing:remember-import', async (_event, path: unknown) => {
     if (typeof path === 'string' && path && (await stat(path)).isFile()) await rememberImport(dirname(path))

@@ -155,3 +155,8 @@ export function getMediaToolPaths(): { ffmpeg: string; ytDlp: string } {
     ytDlp: toolPath(MEDIA_TOOLS[1]),
   }
 }
+
+// Conversion needs only FFmpeg, independently of the YouTube downloader.
+export function getFFmpegPath(): string | null {
+  return isInstalled(MEDIA_TOOLS[0]) ? toolPath(MEDIA_TOOLS[0]) : null
+}

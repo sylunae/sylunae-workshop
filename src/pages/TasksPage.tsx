@@ -15,6 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../componen
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { Input } from '../components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip'
 import { Switch } from '../components/ui/switch'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet'
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs'
@@ -96,7 +97,7 @@ function TodoPanel() {
   const toggle = (todo: QuickTodo, target: HTMLButtonElement) => {
     if (todo.completed) { patch(todo.id, { completed: false, completedAt: null }); return }
     const rect = target.getBoundingClientRect()
-    patch(todo.id, { completed: true, completedAt: nowIso() })
+    patch(todo.id, { completed: true, inProgress: false, completedAt: nowIso() })
     launchTodoConfetti(rect)
   }
   const routineCompletion = (routineId: string) => completionRecords.find((record) => record.recurringTodoId === routineId && record.occurrenceDate === today)
@@ -145,12 +146,18 @@ function TodoPanel() {
     <div className="todo-list quick-list">{visible.length ? visible.map((todo) => <div className={`todo-row priority-${todo.priority} ${todo.completed ? 'completed' : ''}`} key={todo.id}>
       <button className="todo-check" onClick={(event) => toggle(todo, event.currentTarget)} aria-label={todo.completed ? '恢复待办' : '完成待办'}>{todo.completed ? <Check size={16} /> : <Circle size={18} />}</button>
       <div className="todo-copy"><TodoTitleInput todo={todo} onSave={(title) => patch(todo.id, { title })} /><div className="todo-meta-line"><span className="todo-time-line"><Clock3 size={11} />{todo.completed && todo.completedAt ? `完成于 ${formatTodoTimestamp(todo.completedAt)} · 用时 ${formatTodoDuration(Math.max(0, (new Date(todo.completedAt).getTime() - new Date(todo.createdAt).getTime()) / 3600000))}` : `创建于 ${formatTodoTimestamp(todo.createdAt)} · 已存留 ${formatTodoDuration(Math.max(0, (Date.now() - new Date(todo.createdAt).getTime()) / 3600000))}`}</span></div></div>
+      {!todo.completed && <TodoProgressButton todo={todo} onToggle={() => patch(todo.id, { inProgress: !todo.inProgress })} />}
       <TodoPriorityButton priority={todo.priority} title={todo.title} onChange={(priority) => { preserveSortPriority(`todo:${todo.id}`, todo.priority); patch(todo.id, { priority }) }} />
       <button className="icon-button danger todo-remove" onClick={() => remove(todo.id)} aria-label="删除待办"><Trash2 size={16} /></button>
     </div>) : <div className="compact-empty"><ListTodo size={28} /><strong>这里很清爽</strong><span>输入一件小事，按下 Enter 就记好了。</span></div>}</div>
     <section className="todo-review" aria-label="待办复盘"><div className="todo-review-heading"><div><Sparkles size={17} /><div><strong>清单复盘</strong><small>了解自己的节奏</small></div></div></div><div className="todo-review-grid"><TodoInsight icon={<Check />} value={String(completedToday)} label="今天完成" /><TodoInsight icon={<TrendingUp />} value={String(completedRecently.length + completedRoutineRecently.length)} label="近 7 天完成" /><TodoInsight icon={<History />} value={timedCompleted.length ? formatTodoDuration(averageHours) : '—'} label="平均完成用时" /><TodoInsight icon={<Clock3 />} value={oldest ? (oldestDays ? `${oldestDays} 天` : '今天') : '—'} label="最长等待" /></div><p>{insight}</p></section>
     <RoutineDialog open={routineDialogOpen} routine={editingRoutine} onOpenChange={(open) => { setRoutineDialogOpen(open); if (!open) setEditingRoutine(null) }} onSave={saveRoutine} onDelete={editingRoutine ? () => { deleteRoutine(editingRoutine); setRoutineDialogOpen(false); setEditingRoutine(null) } : undefined} />
   </div>
+}
+
+function TodoProgressButton({ todo, onToggle }: { todo: QuickTodo; onToggle: () => void }) {
+  const label = todo.inProgress ? '正在进行中，点击关闭' : '标记为正在进行中'
+  return <TooltipProvider><Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" className="todo-progress" aria-label={`${todo.title}：${label}`} aria-pressed={Boolean(todo.inProgress)} onClick={onToggle}><Play size={15} fill={todo.inProgress ? 'currentColor' : 'none'} /></Button></TooltipTrigger><TooltipContent>{label}</TooltipContent></Tooltip></TooltipProvider>
 }
 
 function TodoPriorityButton({ priority, title, onChange }: { priority: TodoPriority; title: string; onChange: (priority: TodoPriority) => void }) {

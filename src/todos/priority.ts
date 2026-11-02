@@ -15,5 +15,5 @@ export function compareQuickTodos(a: QuickTodo, b: QuickTodo): number {
   return Number(a.completed) - Number(b.completed)
     || (a.completed
       ? (b.completedAt ?? b.updatedAt).localeCompare(a.completedAt ?? a.updatedAt)
-      : compareTodoPriority(a, b) || b.createdAt.localeCompare(a.createdAt))
+      : Number(Boolean(b.inProgress)) - Number(Boolean(a.inProgress)) || compareTodoPriority(a, b) || b.createdAt.localeCompare(a.createdAt))
 }

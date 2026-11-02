@@ -36,6 +36,26 @@ describe('todo priority controls', () => {
   })
   afterEach(cleanup)
 
+  it('toggles progress ahead of priority, persists it, and clears it on completion', async () => {
+    const rendered = await open()
+    const titles = () => [...document.querySelectorAll<HTMLInputElement>('.quick-list .todo-copy input')].map((input) => input.value)
+    fireEvent.click(screen.getByRole('button', { name: '稍后处理：标记为正在进行中' }))
+    expect(titles()).toEqual(['稍后处理', '重要事项', '普通事项', '已经完成'])
+    expect(screen.getByRole('button', { name: '稍后处理：正在进行中，点击关闭' }).getAttribute('aria-pressed')).toBe('true')
+    await act(async () => { await store.flush() })
+    expect(storage.save).toHaveBeenLastCalledWith({ todos: store.snapshot!.todos })
+    expect(store.snapshot!.todos.find((todo) => todo.id === 'low')?.inProgress).toBe(true)
+    rendered.rerender(<AppStoreProvider><TestPage view="goals" /></AppStoreProvider>)
+    rendered.rerender(<AppStoreProvider><TestPage view="todos" /></AppStoreProvider>)
+    expect(titles()[0]).toBe('稍后处理')
+    fireEvent.click(screen.getByRole('button', { name: '稍后处理：正在进行中，点击关闭' }))
+    expect(titles()).toEqual(['重要事项', '普通事项', '稍后处理', '已经完成'])
+    fireEvent.click(screen.getByRole('button', { name: '稍后处理：标记为正在进行中' }))
+    fireEvent.click(screen.getAllByRole('button', { name: '完成待办' })[0])
+    expect(store.snapshot!.todos.find((todo) => todo.id === 'low')).toMatchObject({ completed: true, inProgress: false })
+    expect(titles().slice(0, 2)).toEqual(['重要事项', '普通事项'])
+  })
+
   it('cycles temporary todo priority in place and persists only todos', async () => {
     await open()
     const titles = () => [...document.querySelectorAll<HTMLInputElement>('.quick-list .todo-copy input')].map((input) => input.value)

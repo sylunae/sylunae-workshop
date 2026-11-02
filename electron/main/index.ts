@@ -13,6 +13,7 @@ import { configureDevelopmentProfile } from './developmentProfile'
 import { closeDatabase, getNoteAsset, putNoteAsset, loadSnapshot, replaceSnapshot, saveSnapshotPatch } from './database'
 import { getMediaToolPaths, getMediaToolsStatus, installMediaTools } from './mediaTools'
 import { registerImageProcessing } from './imageProcessing'
+import { registerFormatConversion } from './formatConversion'
 import { downloadResource, getResourceAudioPath, importWhiteNoise, listResources, removeResource } from './resourceManager'
 import type { AppSnapshot, AppSnapshotPatch, ImageAspectType, ImageAsset, ImageLibraryRoot, ImageLibraryState, ImageScanProgress, LinkPreview, ManagedResourceDirectory, MusicEditableMetadata, MusicImportProgress, MusicImportStage, MusicMetadataUpdate, MusicRemoteImport, MusicTrack, YoutubeVideoSearchResult } from '../../src/shared/types'
 
@@ -878,7 +879,8 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
-  registerImageProcessing()
+  const cleanConversions = registerFormatConversion()
+  registerImageProcessing(cleanConversions)
   ipcMain.handle('storage:put-note-asset', (_event, bytes: Uint8Array, mime: string) => putNoteAsset(bytes, mime))
   ipcMain.handle('storage:get-note-asset', (_event, id: string) => getNoteAsset(id))
   ipcMain.handle('storage:load', () => loadSnapshot())

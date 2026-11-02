@@ -408,6 +408,7 @@ export interface Goal {
 export type TodoPriority = 'low' | 'medium' | 'high'
 
 export interface QuickTodo {
+  inProgress?: boolean
   id: string
   title: string
   goalId?: string
@@ -589,6 +590,7 @@ export interface ImageFolderOutput { count: number; bytes: number; errors: strin
 
 export interface SylunaeAPI {
   platform: 'electron'
+  formatConversion: import('./conversion').FormatConversionAPI
   imageProcessing: {
     rememberImport: (file: File) => Promise<void>
     pickFolder: () => Promise<ImageFolderSummary | null>

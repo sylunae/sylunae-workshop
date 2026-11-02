@@ -23,10 +23,11 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(0)} MB`
 }
 
-export function MediaToolsDialog({ open, onOpenChange, onReady }: {
+export function MediaToolsDialog({ open, onOpenChange, onReady, purpose = 'youtube' }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onReady?: () => void
+  purpose?: 'youtube' | 'conversion'
 }) {
   const [status, setStatus] = useState<MediaToolsStatus | null>(null)
   const [progress, setProgress] = useState<MediaToolsProgress | null>(null)
@@ -95,7 +96,7 @@ export function MediaToolsDialog({ open, onOpenChange, onReady }: {
         <AlertDialogMedia>{status?.ready ? <CheckCircle2 /> : <PackageOpen />}</AlertDialogMedia>
         <AlertDialogTitle>下载媒体工具</AlertDialogTitle>
         <AlertDialogDescription>
-          YouTube 音频导入需要 FFmpeg 和 yt-dlp。工具只下载一次，保存在本机应用数据目录，不会加入备份。
+          {purpose === 'conversion' ? '音视频格式转换需要 FFmpeg，将复用包含 FFmpeg 和 yt-dlp 的媒体工具包。' : 'YouTube 音频导入需要 FFmpeg 和 yt-dlp。'}工具只下载一次，保存在本机应用数据目录，不会加入备份。
         </AlertDialogDescription>
       </AlertDialogHeader>
       <div className="media-tools-summary">

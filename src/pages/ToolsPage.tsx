@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileImage,
   AudioLines,
+  ArrowLeftRight,
   Link2,
   Pencil,
   Plus,
@@ -43,10 +44,12 @@ import { usePersistentState } from "../lib/usePersistentState";
 import { BirthdayTool } from '../components/BirthdayTool';
 import { AudioEditor } from "../components/AudioEditor";
 import { ImageProcessor } from "../components/ImageProcessor";
+import { FormatConverter } from "../components/FormatConverter";
 
-type ToolView = "home" | "clipboard" | "launcher" | "image" | "audio" | "birthdays";
+type ToolView = "home" | "clipboard" | "launcher" | "image" | "audio" | "birthdays" | "conversion";
 
 const toolCards = [
+  { id: "conversion" as const, title: "格式转换", description: "识别图片、视频、音频与文档格式，批量转换或提取音轨。", icon: ArrowLeftRight, accent: "blue" },
   { id: "birthdays" as const, title: "生日通知", description: "记住重要的日子，提前送来生日提醒与祝福。", icon: Cake, accent: "rose" },
   {
     id: "clipboard" as const,
@@ -134,6 +137,7 @@ export function ToolsPage({
       {view === "launcher" && <LauncherTool />}
       {view === "image" && <ImageProcessor />}
       {view === "audio" && <AudioEditor />}
+      {view === "conversion" && <FormatConverter />}
       {view === "birthdays" && <BirthdayTool />}
     </section>
   );
