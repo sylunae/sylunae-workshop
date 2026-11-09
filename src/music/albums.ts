@@ -1,4 +1,5 @@
 import type { MusicAlbum, MusicTrack } from '../shared/types'
+import { mediaSource } from '../platform/mediaSource'
 
 const UNKNOWN_ALBUM = '未知专辑'
 
@@ -58,11 +59,11 @@ export function reconcileMusicLibrary(tracks: MusicTrack[], albums: MusicAlbum[]
 }
 
 export function albumCover(album: MusicAlbum, tracks: MusicTrack[]): string {
-  return album.cover || tracks.find((track) => track.albumId === album.id && track.cover)?.cover || ''
+  return mediaSource(album.cover || tracks.find((track) => track.albumId === album.id && track.cover)?.cover || '')
 }
 
 export function trackCover(track: MusicTrack, albums: MusicAlbum[], tracks: MusicTrack[]): string {
-  if (track.cover) return track.cover
+  if (track.cover) return mediaSource(track.cover)
   const album = track.albumId ? albums.find((item) => item.id === track.albumId) : undefined
   return album ? albumCover(album, tracks) : ''
 }

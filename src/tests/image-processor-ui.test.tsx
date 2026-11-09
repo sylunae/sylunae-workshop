@@ -29,7 +29,7 @@ const imageApi = () => ({
 })
 function desktop() {
   const api = imageApi()
-  window.sylunae = { imageProcessing: api } as unknown as SylunaeAPI
+  window.sylunae = { platform: 'electron', imageProcessing: api } as unknown as SylunaeAPI
   return api
 }
 function importImage(container: HTMLElement) {

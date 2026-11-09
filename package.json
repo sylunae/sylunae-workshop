@@ -1,6 +1,6 @@
 {
   "name": "sylunae-workshop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "丝月工坊 - 个人桌面工具总站",
   "main": "out/main/index.js",
@@ -9,15 +9,25 @@
   "scripts": {
     "dev:web": "vite",
     "dev:desktop": "electron-vite dev",
+    "dev:android": "node scripts/android-dev.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.electron.json",
     "test": "vitest run",
     "build:web": "npm run typecheck && vite build",
     "build:desktop": "npm run typecheck && electron-vite build",
+    "build:android": "npm run build:web && cap sync android",
+    "package:android": "npm run build:android && node scripts/android-build.mjs release",
+    "package:android:debug": "npm run build:android && node scripts/android-build.mjs debug",
+    "test:android": "node scripts/android-build.mjs test",
+    "open:android": "cap open android",
     "package:win": "npm run build:desktop && electron-builder --win nsis"
   },
   "dependencies": {
-    "@tiptap/core": "^3.32.0",
-    "@tiptap/pm": "^3.32.0",
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@tiptap/core": "3.32.2",
+    "@tiptap/pm": "3.32.2",
     "better-sqlite3": "latest",
     "canvas-confetti": "^1.9.4",
     "date-fns": "^4.4.0",
@@ -28,6 +38,7 @@
     "youtube-dl-exec": "^3.1.15"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "latest",
     "@testing-library/react": "latest",

@@ -1,3 +1,4 @@
+import { isAndroid } from '../platform/environment'
 import { useEffect, useState } from 'react'
 import { CheckCircle2, Database, Download, ExternalLink, FolderOpen, HardDrive, LoaderCircle, Music2, PackageOpen, Trash2, Upload } from 'lucide-react'
 import type { ManagedResourceDirectory, ResourceDownloadProgress, ResourceItem, ResourceSummary } from '../shared/types'
@@ -82,7 +83,7 @@ export function ResourceSettings() {
     }
   }
 
-  if (!desktop) return <section className="settings-pane resource-settings-empty"><PackageOpen /><h3>扩展资源仅在桌面端可用</h3><p>桌面端可以下载资源到本机并在离线时继续使用。</p></section>
+  if (!desktop) return <section className="settings-pane resource-settings-empty"><PackageOpen /><h3>客户端专属</h3><p>支持扩展资源的客户端可以下载资源到本机，并在离线时继续使用。</p></section>
 
   return <div className="resource-settings">
     <section className="settings-pane resource-summary-pane">
@@ -91,7 +92,7 @@ export function ResourceSettings() {
       {!summary?.remoteConfigured && <p className="resource-config-note">尚未配置公开资源地址。内置和用户添加的资源仍可正常使用；下载资源前请在 <code>.env.local</code> 中填写 <code>MAIN_VITE_RESOURCE_PUBLIC_BASE_URL</code>。</p>}
     </section>
 
-    <section className="settings-pane resource-folders-pane">
+    {!isAndroid && <section className="settings-pane resource-folders-pane">
       <div className="resource-list-heading"><div><strong>本地文件夹</strong><small>在文件资源管理器中查看应用管理的本地内容</small></div></div>
       <div className="resource-folder-list">
         <div className="resource-folder-item"><span><Database /></span><div><strong>应用数据</strong><small>数据库、缓存与全部应用资源的根目录</small></div><Button variant="outline" size="sm" onClick={() => void openDirectory('app-data')}><FolderOpen />打开</Button></div>
@@ -99,7 +100,7 @@ export function ResourceSettings() {
         <div className="resource-folder-item"><span><PackageOpen /></span><div><strong>扩展资源</strong><small>已下载或添加的白噪音等资源</small></div><Button variant="outline" size="sm" onClick={() => void openDirectory('resources')}><FolderOpen />打开</Button></div>
       </div>
       <p className="resource-folder-note">从电脑文件导入的音乐会保留在原位置，资料库只记录文件路径，不会复制到“音乐下载”文件夹。</p>
-    </section>
+    </section>}
 
     <section className="settings-pane resource-list-pane">
       <div className="resource-list-heading"><div><strong>白噪音</strong><small>1 个内置资源，其余资源按需下载</small></div><span>{summary ? formatBytes(summary.availableBytes) : '—'} 可下载</span></div>

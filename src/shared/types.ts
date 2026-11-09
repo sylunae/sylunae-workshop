@@ -589,7 +589,7 @@ export interface ImageFolderSummary { path: string; count: number; bytes: number
 export interface ImageFolderOutput { count: number; bytes: number; errors: string[]; files?: string[] }
 
 export interface SylunaeAPI {
-  platform: 'electron'
+  platform: 'electron' | 'android'
   formatConversion: import('./conversion').FormatConversionAPI
   imageProcessing: {
     rememberImport: (file: File) => Promise<void>
@@ -653,6 +653,7 @@ export interface SylunaeAPI {
     importFile: () => Promise<string | null>
   }
   system: {
+    setTheme?: (theme: 'light' | 'dark', background: string) => Promise<void>
     themeReady: () => void
     getTheme: () => Promise<'light' | 'dark'>
     openExternal: (url: string) => Promise<void>

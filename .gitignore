@@ -13,3 +13,14 @@ output/white-noise-*
 .env.local
 .env.*.local
 .DS_Store
+.android-tools/
+.android-signing/
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/**/build/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+*.jks
+*.keystore

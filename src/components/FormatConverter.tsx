@@ -1,3 +1,4 @@
+import { isAndroid } from '../platform/environment'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { ArrowLeftRight, AudioLines, Check, Download, FileImage, FileText, Film, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { Button } from './ui/button'
@@ -186,7 +187,7 @@ export function FormatConverter() {
         <Button variant="ghost" disabled={disabled} onClick={() => void reidentify()}><RefreshCw size={15} />重新识别文件</Button>
       </aside>
     </div>}
-    <div className="conversion-environment"><p>{desktop ? `桌面端 · 图片引擎已就绪 · 媒体工具${capabilities ? capabilities.ffmpeg ? '已就绪' : '未安装' : '检查中'} · LibreOffice${capabilities ? capabilities.office ? '已检测到' : '未检测到' : '检查中'}` : '网页端支持浏览器可解码的图片及 UTF-8 文本文档；更多图片格式、音视频和 Office 转换请使用桌面端。'}</p>{desktop && capabilities && !capabilities.ffmpeg && <Button variant="outline" className="button secondary" disabled={disabled} onClick={() => setToolsOpen(true)}>下载媒体工具</Button>}</div>
+    <div className="conversion-environment"><p>{isAndroid ? 'Android 支持可解码图片及 UTF-8 文本文档转换；依赖 FFmpeg、LibreOffice 的转换请在桌面端使用。' : desktop ? `桌面端 · 图片引擎已就绪 · 媒体工具${capabilities ? capabilities.ffmpeg ? '已就绪' : '未安装' : '检查中'} · LibreOffice${capabilities ? capabilities.office ? '已检测到' : '未检测到' : '检查中'}` : '网页端支持浏览器可解码的图片及 UTF-8 文本文档；更多图片格式、音视频和 Office 转换请使用桌面端。'}</p>{!isAndroid && desktop && capabilities && !capabilities.ffmpeg && <Button variant="outline" className="button secondary" disabled={disabled} onClick={() => setToolsOpen(true)}>下载媒体工具</Button>}</div>
     {progress && <p className="conversion-progress" role="status">{progress}</p>}
     {results.length > 0 && <section className="conversion-results"><div className="panel-heading"><div><h3>转换结果</h3><p>确认结果后下载，原始文件保持完整</p></div><Button className="button primary" disabled={disabled} onClick={() => void save(results)}><Download size={16} />下载全部结果</Button></div>{results.map((item) => <div className="conversion-result" key={item.key}><Check size={18} /><div><strong className="user-content">{item.result!.name}</strong><span>{sizeLabel(item.source.size)} → {sizeLabel(item.result!.size)}</span></div><Button variant="outline" className="button secondary" disabled={disabled} onClick={() => void save([item])}><Download size={15} />下载</Button></div>)}</section>}
     {notice && <p className="conversion-progress" role="status">{notice}</p>}

@@ -1,3 +1,4 @@
+import { saveBlob } from '../platform/saveFile'
 import { VirtualNoteList } from '../components/VirtualNoteList'
 import { noteImageDataUrl } from '../data/noteAssets'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -227,6 +228,12 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
 
   useEffect(() => setTitleDraft(note.title), [note.title])
 
+  useEffect(() => {
+    const commitBeforeSuspend = () => { commitTitle(); commitContent() }
+    window.addEventListener('sylunae:flush-editors', commitBeforeSuspend)
+    return () => window.removeEventListener('sylunae:flush-editors', commitBeforeSuspend)
+  }, [])
+
   useEffect(() => () => {
     if (titleTimer.current) clearTimeout(titleTimer.current)
     contentSaver.current?.flush()
@@ -270,12 +277,7 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
       const references = new Set(markdown.match(/sylunae-note-asset:[a-f0-9]{64}/g) ?? [])
       for (const reference of references) markdown = markdown.replaceAll(reference, await noteImageDataUrl(reference))
       const file = new Blob([markdownExport(titleDraft, markdown)], { type: 'text/markdown;charset=utf-8' })
-      const url = URL.createObjectURL(file)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = markdownFileName(titleDraft)
-      anchor.click()
-      URL.revokeObjectURL(url)
+      await saveBlob(markdownFileName(titleDraft), file)
     } catch { setOperationError('导出失败，请确认笔记图片可读取后重试。') }
   }
   const importMarkdown = () => {

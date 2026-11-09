@@ -6,6 +6,7 @@ import { dueBirthdayReminders } from '../birthdays/reminders'
 import { Button } from './ui/button'
 
 export function externalNotificationStatus(): string {
+  if (window.sylunae?.platform === 'android') return 'Android 使用系统通知，请在系统设置中允许丝月工坊发送通知。'
   if (window.sylunae) return '桌面端使用系统通知，请在系统设置中允许丝月工坊发送通知。'
   if (!window.isSecureContext || !('Notification' in window)) return '当前环境不支持系统通知；App 内提醒仍可使用。网页请使用 HTTPS 或 localhost。'
   if (Notification.permission === 'denied') return '系统通知已被浏览器阻止，请在网站权限中手动允许。'

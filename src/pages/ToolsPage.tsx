@@ -11,6 +11,7 @@ import {
   AudioLines,
   ArrowLeftRight,
   Link2,
+  Music,
   Pencil,
   Plus,
   Search,
@@ -41,14 +42,18 @@ import {
 import { Textarea } from "../components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { usePersistentState } from "../lib/usePersistentState";
+import { isAndroid } from "../platform/environment";
 import { BirthdayTool } from '../components/BirthdayTool';
 import { AudioEditor } from "../components/AudioEditor";
 import { ImageProcessor } from "../components/ImageProcessor";
 import { FormatConverter } from "../components/FormatConverter";
 
-type ToolView = "home" | "clipboard" | "launcher" | "image" | "audio" | "birthdays" | "conversion";
+type ToolView = "home" | "clipboard" | "launcher" | "image" | "audio" | "birthdays" | "conversion" | "music-toolbox";
+
+const tempoAnalyzerUrl = "https://tuanziai.com/audio-tools/tempo-analyze";
 
 const toolCards = [
+  { id: "music-toolbox" as const, title: "音乐工具箱", description: "在工坊内使用团子 AI 的节拍分析与校准工具。", icon: Music, accent: "blue" },
   { id: "conversion" as const, title: "格式转换", description: "识别图片、视频、音频与文档格式，批量转换或提取音轨。", icon: ArrowLeftRight, accent: "blue" },
   { id: "birthdays" as const, title: "生日通知", description: "记住重要的日子，提前送来生日提醒与祝福。", icon: Cake, accent: "rose" },
   {
@@ -92,14 +97,20 @@ export function ToolsPage({
     if (initialView !== "home") setView(initialView);
   }, [initialView, setView]);
   useEffect(() => {
+    // A removed tool may still be selected in persisted navigation.
+    if (view !== "home" && !toolCards.some((tool) => tool.id === view)) {
+      setView("home");
+      return;
+    }
     pageRef.current?.scrollTo({ top: 0 });
-  }, [view]);
+  }, [view, setView]);
+  const showMusicToolbox = view === "music-toolbox";
   return (
-    <section ref={pageRef} className="page tools-page">
+    <section ref={pageRef} className={showMusicToolbox ? "page tools-page music-toolbox-page" : "page tools-page"}>
       <header className="page-header">
         <div>
           <span className="eyebrow">UTILITY BOX</span>
-          <h1>工具箱</h1>
+          <h1>{showMusicToolbox ? "音乐工具箱" : "工具箱"}</h1>
           <p>
             {view === "home" ? (
               "轻量、顺手，并且只在需要时出现"
@@ -110,6 +121,18 @@ export function ToolsPage({
             )}
           </p>
         </div>
+        {showMusicToolbox && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              void (window.sylunae?.system.openExternal(tempoAnalyzerUrl) ??
+                window.open(tempoAnalyzerUrl, "_blank", "noopener,noreferrer"));
+            }}
+          >
+            <ExternalLink />
+            在浏览器中打开
+          </Button>
+        )}
       </header>
       {view === "home" && (
         <>
@@ -137,6 +160,19 @@ export function ToolsPage({
       {view === "launcher" && <LauncherTool />}
       {view === "image" && <ImageProcessor />}
       {view === "audio" && <AudioEditor />}
+      {showMusicToolbox && (
+        isAndroid ? (
+          <p>在浏览器中打开团子 AI，使用节拍分析与校准工具。</p>
+        ) : (
+          <iframe
+            className="music-toolbox-frame"
+            title="团子 AI 节拍分析校准"
+            src={tempoAnalyzerUrl}
+            sandbox="allow-scripts allow-same-origin allow-downloads"
+            referrerPolicy="no-referrer"
+          />
+        )
+      )}
       {view === "conversion" && <FormatConverter />}
       {view === "birthdays" && <BirthdayTool />}
     </section>

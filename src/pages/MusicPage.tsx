@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Album, ArrowRight, CheckSquare2, CloudRain, Disc3, FileMusic, FolderOpen, ListMusic, LocateFixed, Music2, Pause, PencilLine, Play, Plus, Repeat, Repeat1, Search, Shuffle, SkipBack, SkipForward, Trash2, Volume1, Volume2, X } from 'lucide-react'
+import { Album, ArrowRight, CheckSquare2, CloudRain, Disc3, FileMusic, FolderOpen, ListMusic, LocateFixed, MoreHorizontal, Music2, Pause, PencilLine, Play, Plus, Repeat, Repeat1, Search, Shuffle, SkipBack, SkipForward, Trash2, Volume1, Volume2, X } from 'lucide-react'
 import { useAppStore } from '../app/AppStore'
 import type { MusicAlbum, MusicMetadataUpdate, MusicTrack } from '../shared/types'
 import { formatDuration } from '../utils'
@@ -15,10 +15,14 @@ import { MusicImportDialog } from '../components/MusicImportDialog'
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { AudioWaveform } from '../components/AudioWaveform'
 import { adjacentTrack, playbackQueue } from '../music/playback'
+import { isAndroid } from '../platform/environment'
+import { nativePlayer, playerCommand, setNativeQueue, type NativePlaybackState } from '../platform/player'
+import { mergeTransferredTracks } from '../music/transfer'
 import { usePersistentState } from '../lib/usePersistentState'
 import { Checkbox } from '../components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
 
 type RepeatMode = 'off' | 'all' | 'one'
 
@@ -40,6 +44,8 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
   const [queueAlbumId, setQueueAlbumId] = useState<string | null>(null)
   const [playerError, setPlayerError] = useState('')
   const [audioUrl, setAudioUrl] = useState('')
+  const [nativeReady, setNativeReady] = useState(false)
+  const nativeCurrent = useRef<NativePlaybackState | null>(null)
   const [removeTarget, setRemoveTarget] = useState<MusicTrack | null>(null)
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(() => new Set())
   const [selectingTracks, setSelectingTracks] = useState(false)
@@ -65,6 +71,37 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
   const allFilteredSelected = filteredTrackIds.length > 0 && selectedFilteredCount === filteredTrackIds.length
 
   useEffect(() => {
+    if (!isAndroid) return
+    let disposed = false
+    const sync = (state: NativePlaybackState) => {
+      if (disposed) return
+      nativeCurrent.current = state
+      setNativeReady(true)
+      const music = state.id && !state.id.startsWith('ambient:')
+      if (music) { setCurrentId(state.id); setPosition(state.position); setDuration(state.duration) }
+      setPlaying(Boolean(music && state.playing))
+      if (music) { setShuffle(state.shuffle); setRepeat(state.repeat) }
+    }
+    const listener = nativePlayer.addListener('state', sync)
+    const errors = nativePlayer.addListener('playbackError', (error) => { if (!disposed) { setPlayerError(error.message); setPlaying(false) } })
+    void playerCommand('state').then(sync).catch((error) => setPlayerError(String(error)))
+    return () => { disposed = true; void listener.then((handle) => handle.remove()); void errors.then((handle) => handle.remove()) }
+  }, [])
+
+  useEffect(() => {
+    if (isAndroid && nativeReady) void playerCommand('volume', { volume }).catch(() => setPlayerError('无法设置音量'))
+  }, [volume, nativeReady])
+  useEffect(() => {
+    if (isAndroid && nativeReady && !nativeCurrent.current?.id?.startsWith('ambient:')) void playerCommand('modes', { shuffle, repeat }).catch(() => setPlayerError('无法设置播放模式'))
+  }, [shuffle, repeat, nativeReady])
+  useEffect(() => {
+    const state = nativeCurrent.current
+    if (!isAndroid || !state?.id || state.id.startsWith('ambient:')) return
+    if (!queue.some((track) => track.id === state.id)) { void playerCommand('stop').catch(() => {}); setCurrentId(null); return }
+    void setNativeQueue(queue, state.id, state.playing).catch(() => setPlayerError('无法更新播放队列'))
+  }, [queue])
+
+  useEffect(() => {
     if (!window.sylunae || tracks.length === 0) return
     void window.sylunae.music.checkPaths(tracks.map((track) => track.path)).then((result) => {
       if (tracks.some((track) => track.missing === result[track.path])) {
@@ -81,6 +118,7 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
 
   const addImportedTracks = (picked: MusicTrack[]) => {
     update((state) => {
+      if (isAndroid) return { ...state, ...reconcileMusicLibrary(mergeTransferredTracks(state.tracks, picked), state.albums) }
       const paths = new Set(state.tracks.map((track) => track.path))
       const additions = picked.filter((track) => {
         if (paths.has(track.path)) return false
@@ -97,6 +135,13 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
     setQueueAlbumId(albumId)
     setPlayerError('')
     try {
+      if (isAndroid) {
+        await playerCommand('modes', { shuffle, repeat })
+        await playerCommand('volume', { volume })
+        await setNativeQueue(playbackQueue(tracks, albumId), track.id, true)
+        setCurrentId(track.id)
+        return
+      }
       const url = await window.sylunae.music.getAudioUrl(track.path)
       setAudioUrl(url)
       if (currentId !== track.id && audio.current) {
@@ -109,12 +154,18 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
   }
 
   const adjacent = (direction: 1 | -1) => {
+    if (isAndroid) { void playerCommand(direction === 1 ? 'next' : 'previous').catch(() => setPlayerError('切歌失败')); return }
     const next = adjacentTrack(queue, currentId, direction, shuffle)
     if (next) void playTrack(next, queueAlbumId)
   }
 
   const togglePlay = () => {
     if (!current) { if (tracks[0]) void playTrack(tracks[0]); return }
+    if (isAndroid) {
+      if (nativeCurrent.current?.id !== current.id) void playTrack(current, queueAlbumId)
+      else void playerCommand(playing ? 'pause' : 'play').catch(() => setPlayerError('播放操作失败'))
+      return
+    }
     if (!audio.current) return
     if (playing) { audio.current.pause(); setPlaying(false) } else void audio.current.play().then(() => setPlaying(true))
   }
@@ -126,6 +177,7 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
   }
 
   const remove = (track: MusicTrack) => {
+    if (isAndroid && currentId === track.id) void playerCommand('stop').catch(() => {})
     if (currentId === track.id) { audio.current?.pause(); setCurrentId(null); setAudioUrl(''); setPlaying(false) }
     setSelectedTrackIds((currentSelection) => { const next = new Set(currentSelection); next.delete(track.id); return next })
     update((state) => ({ ...state, ...reconcileMusicLibrary(state.tracks.filter((item) => item.id !== track.id), state.albums) }))
@@ -150,6 +202,7 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
   }
 
   const removeSelectedTracks = () => {
+    if (isAndroid && selectedTrackIds.has(currentId || '')) void playerCommand('stop').catch(() => {})
     if (selectedTrackIds.has(currentId || '')) {
       audio.current?.pause()
       setCurrentId(null)
@@ -205,11 +258,16 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
     if (!window.sylunae) return
     const replacement = await window.sylunae.music.relocate(track.id)
     if (!replacement) return
-    update((state) => ({ ...state, ...reconcileMusicLibrary(state.tracks.map((item) => item.id === track.id ? { ...replacement, createdAt: item.createdAt } : item), state.albums) }))
+    update((state) => ({ ...state, ...reconcileMusicLibrary(state.tracks.map((item) => item.id === track.id ? isAndroid ? { ...item, path: replacement.path, duration: replacement.duration, missing: false, cover: item.cover || replacement.cover, updatedAt: replacement.updatedAt } : { ...replacement, createdAt: item.createdAt } : item), state.albums) }))
   }
 
   const saveMetadata = async (input: MusicMetadataUpdate) => {
     if (!window.sylunae) return
+    if (isAndroid) {
+      const replacement = await window.sylunae.music.updateMetadata(input)
+      update((state) => ({ ...state, ...reconcileMusicLibrary(state.tracks.map((track) => track.id === input.id ? { ...replacement, id: track.id, albumId: track.albumId, createdAt: track.createdAt } : track), state.albums) }))
+      return
+    }
     const element = audio.current
     const isCurrent = currentId === input.id && Boolean(element?.src)
     const wasPlaying = isCurrent && playing
@@ -251,7 +309,7 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
     update((state) => ({ ...state, albums: state.albums.map((album) => album.id === albumId ? { ...album, cover, updatedAt: new Date().toISOString() } : album) }))
   }
 
-  if (!window.sylunae) return <section className="page"><header className="page-header"><div><span className="eyebrow">MUSIC</span><h1>音乐</h1><p>属于桌面端的安静播放器</p></div><Button className="button secondary" onClick={onOpenWhiteNoise}><CloudRain size={17} />白噪音<ArrowRight size={15} /></Button></header><EmptyState icon={<Music2 size={27} />} title="桌面版专属能力" description="浏览器无法长期、安全地保留本地音乐路径。安装并打开丝月工坊桌面版后，即可建立你的音乐资料库。" /></section>
+  if (!window.sylunae) return <section className="page"><header className="page-header"><div><span className="eyebrow">MUSIC</span><h1>音乐</h1><p>属于你的安静播放器</p></div><Button className="button secondary" onClick={onOpenWhiteNoise}><CloudRain size={17} />白噪音<ArrowRight size={15} /></Button></header><EmptyState icon={<Music2 size={27} />} title="客户端专属" description="请使用支持本地音乐库的丝月工坊客户端建立你的音乐资料库。" /></section>
 
   return <section className="page music-page">
     <header className="page-header"><div><span className="eyebrow">MUSIC</span><h1>音乐</h1><p>{tracks.length ? `${tracks.length} 首本地音乐` : '让喜欢的声音留在手边'}</p></div><div className="music-header-actions"><Button className="button secondary" onClick={onOpenWhiteNoise}><CloudRain size={17} />白噪音<ArrowRight size={15} /></Button><Button className="button primary" onClick={() => setImportOpen(true)}><Plus size={17} />添加音乐</Button></div></header>
@@ -261,7 +319,7 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
     >
       <div className="hero-art">{currentCover ? <img src={currentCover} alt="" /> : <Disc3 size={48} strokeWidth={1.2} />}</div>
       <div className="hero-copy"><span>正在播放</span><h2 className={current ? 'private-music-title' : undefined}>{current?.title || '还没有选择音乐'}</h2><p className={current ? 'user-content' : undefined}>{current ? `${current.artist} · ${current.album}` : '从资料库中选择一首，给此刻一点声音。'}</p></div>
-      {current && audioUrl ? <AudioWaveform media={audio.current} src={audioUrl} /> : <div className="audio-waveform-placeholder" aria-hidden><span /></div>}
+      {current && audioUrl && !isAndroid ? <AudioWaveform media={audio.current} src={audioUrl} /> : <div className="audio-waveform-placeholder" aria-hidden><span /></div>}
     </div>
     <div className="toolbar music-library-toolbar">
       <Tabs value={view} onValueChange={(value) => { const nextView = value as 'tracks' | 'albums'; setView(nextView); if (nextView === 'albums') { setSelectedTrackIds(new Set()); setSelectingTracks(false) } }}><TabsList variant="line" aria-label="音乐资料库视图"><TabsTrigger value="tracks"><Music2 />歌曲 <span>{tracks.length}</span></TabsTrigger><TabsTrigger value="albums"><Album />专辑 <span>{albums.length}</span></TabsTrigger></TabsList></Tabs>
@@ -277,12 +335,17 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
       {view === 'albums' && <Button variant="outline" size="lg" onClick={() => { setCreateAlbumError(''); setCreateAlbumOpen(true) }}><Plus size={15} />新建专辑</Button>}
     </div>
     {playerError && <div className="notice error">{playerError}</div>}
-    {tracks.length === 0 ? <EmptyState icon={<FileMusic size={26} />} title="资料库还是空的" description="可以索引电脑中的音频，也可以从 YouTube 或音频链接下载到本地。" action={<Button className="button primary" onClick={() => setImportOpen(true)}><Plus size={16} />添加第一首音乐</Button>} /> :
+    {tracks.length === 0 ? <EmptyState icon={<FileMusic size={26} />} title="资料库还是空的" description={isAndroid ? "将电脑上的音乐传到手机后，在这里批量导入。文件保存在应用私有目录，支持离线与后台播放。" : "可以索引电脑中的音频，也可以从 YouTube 或音频链接下载到本地。"} action={<Button className="button primary" onClick={() => setImportOpen(true)}><Plus size={16} />添加第一首音乐</Button>} /> :
       view === 'tracks' ? <div className="track-table"><div className="track-head"><span>{selectingTracks ? <Checkbox aria-label="选择当前筛选的全部歌曲" checked={allFilteredSelected ? true : selectedFilteredCount > 0 ? 'indeterminate' : false} onCheckedChange={toggleFilteredTrackSelection} /> : '#'}</span><span>歌曲</span><span>专辑</span><span>时长</span><span /></div>{filtered.map((track, index) => <div key={track.id} className={`track-row ${currentId === track.id ? 'active' : ''} ${track.missing ? 'missing' : ''} ${selectedTrackIds.has(track.id) ? 'selected' : ''}`} onDoubleClick={() => void playTrack(track)}>
         {selectingTracks ? <span className="track-select-cell"><Checkbox aria-label={`选择 ${track.title}`} checked={selectedTrackIds.has(track.id)} onCheckedChange={() => toggleTrackSelection(track.id)} /></span> : <button className="track-play" disabled={track.missing} onClick={() => currentId === track.id ? togglePlay() : void playTrack(track)}>{currentId === track.id && playing ? <Pause size={15} /> : <span>{index + 1}</span>}</button>}
         <div className="track-title"><div className="tiny-cover">{trackCover(track, albums, tracks) ? <img src={trackCover(track, albums, tracks)} alt="" /> : <Music2 size={15} />}</div><div><strong className="private-music-title">{track.title}</strong><span className={track.missing ? undefined : 'private-music-artist'}>{track.missing ? '文件已移动或删除' : track.artist}</span></div></div>
         {(() => { const album = track.albumId ? albums.find((item) => item.id === track.albumId) : undefined; return album ? <button type="button" className="track-album track-album-link private-music-album" onClick={() => setAlbumTarget(album)}>{track.album}</button> : <span className="track-album private-music-album">{track.album}</span> })()}<span>{formatDuration(track.duration)}</span>
-        <div className="track-actions">{track.missing && <button onClick={() => void relocate(track)} title="重新定位"><LocateFixed size={16} /></button>}<button disabled={track.missing} onClick={() => void window.sylunae?.music.showInFolder(track.path)} title="在文件夹中显示"><FolderOpen size={16} /></button><button disabled={track.missing} onClick={() => setEditTarget(track)} title="编辑元信息"><PencilLine size={16} /></button><button onClick={() => setRemoveTarget(track)} title="移除索引"><Trash2 size={16} /></button></div>
+        <div className="track-actions">{isAndroid ? <DropdownMenu><DropdownMenuTrigger asChild><button type="button" aria-label={`更多歌曲操作：${track.title}`}><MoreHorizontal size={20} /></button></DropdownMenuTrigger><DropdownMenuContent align="end">
+          {track.missing && <DropdownMenuItem onSelect={() => void relocate(track).catch(() => setPlayerError('无法重新关联音频文件'))}><LocateFixed />重新定位</DropdownMenuItem>}
+          <DropdownMenuItem disabled={track.missing} onSelect={() => void window.sylunae?.music.showInFolder(track.path).catch(() => setPlayerError('音频导出失败，请重试'))}><FolderOpen />导出音频文件</DropdownMenuItem>
+          <DropdownMenuItem disabled={track.missing} onSelect={() => setEditTarget(track)}><PencilLine />编辑元信息</DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onSelect={() => setRemoveTarget(track)}><Trash2 />移除索引</DropdownMenuItem>
+        </DropdownMenuContent></DropdownMenu> : <>{track.missing && <button onClick={() => void relocate(track)} title="重新定位"><LocateFixed size={16} /></button>}<button disabled={track.missing} onClick={() => void window.sylunae?.music.showInFolder(track.path)} title="在文件夹中显示"><FolderOpen size={16} /></button><button disabled={track.missing} onClick={() => setEditTarget(track)} title="编辑元信息"><PencilLine size={16} /></button><button onClick={() => setRemoveTarget(track)} title="移除索引"><Trash2 size={16} /></button></>}</div>
       </div>)}</div> : filteredAlbums.length ? <div className="music-album-grid">{filteredAlbums.map((album) => {
         const albumTracks = tracks.filter((track) => track.albumId === album.id)
         const cover = albumCover(album, albumTracks)
@@ -293,7 +356,7 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
       <audio ref={audio} onPlay={() => setPlaying(true)} onPause={() => { if (!releasingForEdit.current) setPlaying(false) }} onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)} onEnded={onEnded} onError={() => { if (!releasingForEdit.current) { setPlayerError('音频加载失败'); setPlaying(false) } }} />
       <div className="player-track"><div className="tiny-cover large">{currentCover ? <img src={currentCover} alt="" /> : <ListMusic size={17} />}</div><div><strong className={current ? 'private-music-title' : undefined}>{current?.title || '未选择'}</strong><span className={current?.artist ? 'private-music-artist' : undefined}>{current?.artist || '—'}</span></div></div>
       <div className="player-center"><div className="player-controls"><button className={shuffle ? 'active' : ''} onClick={() => setShuffle(!shuffle)}><Shuffle size={16} /></button><button onClick={() => adjacent(-1)}><SkipBack size={18} fill="currentColor" /></button><button className="play-main" onClick={togglePlay}>{playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}</button><button onClick={() => adjacent(1)}><SkipForward size={18} fill="currentColor" /></button><button className={repeat !== 'off' ? 'active' : ''} onClick={() => setRepeat(repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off')}>{repeat === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}</button></div>
-        <div className="progress-control"><span>{formatDuration(position)}</span><Slider min={0} max={Math.max(duration, 1)} step={1} value={[Math.min(position, duration || 0)]} onValueChange={([value]) => { if (audio.current) audio.current.currentTime = value }} aria-label="播放进度" /><span>{formatDuration(duration)}</span></div></div>
+        <div className="progress-control"><span>{formatDuration(position)}</span><Slider min={0} max={Math.max(duration, 1)} step={1} value={[Math.min(position, duration || 0)]} onValueChange={([value]) => { if (isAndroid) void playerCommand('seek', { position: value }).catch(() => setPlayerError('无法调整播放进度')); else if (audio.current) audio.current.currentTime = value }} aria-label="播放进度" /><span>{formatDuration(duration)}</span></div></div>
       <div className="volume-control">{volume < 0.05 ? <Volume1 size={17} /> : <Volume2 size={17} />}<Slider min={0} max={1} step={0.01} value={[volume]} onValueChange={([value]) => setVolume(value)} aria-label="音量" /></div>
     </div>
     {editTarget && <MusicMetadataSheet track={editTarget} albums={albums} onClose={() => setEditTarget(null)} onSave={saveMetadata} />}

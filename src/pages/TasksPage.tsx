@@ -462,7 +462,7 @@ function CountdownEditor({ open, event, onClose, onSave }: { open: boolean; even
     return () => { active = false }
   }, [open, coverImagePath])
   const chooseCoverImage = async () => {
-    if (!window.sylunae) { setError('本地图片选择仅在桌面端可用'); return }
+    if (!window.sylunae) { setError('本地图片选择为客户端专属功能'); return }
     try {
       const selected = await window.sylunae.images.pickFile()
       if (selected) { setCoverImagePath(selected.path); setError('') }

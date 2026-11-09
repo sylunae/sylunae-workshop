@@ -1,3 +1,4 @@
+import { isAndroid } from '../platform/environment'
 import { useEffect, useRef, useState } from 'react'
 import { Disc3, ImagePlus, Trash2 } from 'lucide-react'
 import type { MusicAlbum, MusicCoverUpdate, MusicEditableMetadata, MusicMetadataUpdate, MusicTrack } from '../shared/types'
@@ -88,7 +89,7 @@ export function MusicMetadataSheet({ track, albums, onClose, onSave }: {
     <SheetContent className="detail-drawer metadata-drawer" showCloseButton={!saving}>
       <SheetHeader className="metadata-sheet-header">
         <SheetTitle>编辑音乐信息</SheetTitle>
-        <SheetDescription>修改会直接写入原音频文件。</SheetDescription>
+        <SheetDescription>{isAndroid ? '修改保存在此设备的音乐资料库中，不会改写原音频标签。' : '修改会直接写入原音频文件。'}</SheetDescription>
       </SheetHeader>
       {loading ? <div className="metadata-loading"><Spinner /><span>正在读取文件元信息…</span></div> : <div className="metadata-sheet-body">
         <div className="metadata-cover-editor">

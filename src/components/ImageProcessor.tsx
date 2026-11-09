@@ -1,3 +1,5 @@
+import { saveBlob } from '../platform/saveFile'
+import { isElectron } from '../platform/environment'
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react'
 import { Crop, Download, FileImage, FolderOpen, Check, Upload, RotateCcw, RotateCw, Trash2, X } from 'lucide-react'
 import { Button } from './ui/button'
@@ -264,10 +266,7 @@ export function ImageProcessor() {
     finally { if (alive.current) setBusy(false) }
   }
   const download = (item: EncodedImage) => {
-    const anchor = document.createElement('a')
-    anchor.href = item.url
-    anchor.download = item.name
-    anchor.click()
+    void saveBlob(item.name, item.blob).catch((reason) => setError(errorLabel(reason)))
   }
   const exportImages = async () => {
     if (!currentPreview?.images.length || busy) return
@@ -295,10 +294,10 @@ export function ImageProcessor() {
     {error && <p className="image-processing-error" role="alert">{error}</p>}
     {!active && !folder ? <div className="image-import">
       <button className={`audio-editor-dropzone ${loading ? 'loading' : ''}`} disabled={loading} onClick={() => input.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files)) }}><span className="audio-editor-drop-icon"><FileImage size={30} /></span><strong>{loading ? '正在读取…' : '选择或拖入图片'}</strong><span>支持批量选择，文件只在本机处理</span><span className="audio-editor-file-action"><Upload size={14} />选择文件</span></button>
-      {window.sylunae && <Button variant="outline" disabled={loading} onClick={() => void chooseFolder()}><FolderOpen size={16} />选择文件夹批量处理</Button>}
+      {isElectron() && <Button variant="outline" disabled={loading} onClick={() => void chooseFolder()}><FolderOpen size={16} />选择文件夹批量处理</Button>}
     </div> : <div className="audio-editor-shell" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!busy && !loading) void addFiles(Array.from(event.dataTransfer.files)) }}>
       <div className="image-edit-area audio-editor-main">
-        <div className="audio-editor-filebar image-filebar"><span className="audio-editor-file-icon">{folder ? <FolderOpen size={19} /> : <FileImage size={19} />}</span><div><strong>{folder ? folder.path : active?.file.name}</strong><span>{folder ? `${folder.count} 张图片 · ${sizeLabel(folder.bytes)}` : `${items.length} 张图片 · ${sizeLabel(items.reduce((sum, item) => sum + item.file.size, 0))}`}</span></div><Button variant="outline" disabled={busy || loading} onClick={() => { if (folder) void chooseFolder(); else input.current?.click() }}><Upload size={15} />{folder ? '更换' : '选择图片'}</Button>{folder && <Button variant="outline" disabled={busy || loading} onClick={() => input.current?.click()}>选择图片</Button>}{window.sylunae && !folder && <Button variant="outline" disabled={busy || loading} onClick={() => void chooseFolder()}><FolderOpen size={15} />文件夹</Button>}</div>
+        <div className="audio-editor-filebar image-filebar"><span className="audio-editor-file-icon">{folder ? <FolderOpen size={19} /> : <FileImage size={19} />}</span><div><strong>{folder ? folder.path : active?.file.name}</strong><span>{folder ? `${folder.count} 张图片 · ${sizeLabel(folder.bytes)}` : `${items.length} 张图片 · ${sizeLabel(items.reduce((sum, item) => sum + item.file.size, 0))}`}</span></div><Button variant="outline" disabled={busy || loading} onClick={() => { if (folder) void chooseFolder(); else input.current?.click() }}><Upload size={15} />{folder ? '更换' : '选择图片'}</Button>{folder && <Button variant="outline" disabled={busy || loading} onClick={() => input.current?.click()}>选择图片</Button>}{isElectron() && !folder && <Button variant="outline" disabled={busy || loading} onClick={() => void chooseFolder()}><FolderOpen size={15} />文件夹</Button>}</div>
         {folder ? <div className="image-folder-summary"><FolderOpen size={42} /><h3>文件夹批量处理</h3><p>仅统计与批量转换，不加载图片预览</p><label className="image-recursive"><Checkbox checked={folder.recursive} disabled={busy || loading} onCheckedChange={(checked) => void chooseFolder(checked === true)} />包含子文件夹</label><div className="image-folder-stats"><div><span>图片数量</span><strong>{folder.count} 张</strong></div><div><span>原始体积</span><strong>{sizeLabel(folder.bytes)}</strong></div>{Object.entries(folder.formats).map(([name, count]) => <div key={name}><span>{name}</span><strong>{count} 张</strong></div>)}</div>{!folder.count && <p>文件夹中没有支持的图片，请尝试包含子文件夹或更换文件夹。</p>}</div> : active && <>
           <div className="image-source-list" aria-label="待处理图片">{items.map((item) => <div key={item.id} className={`image-source-item ${item.id === active?.id ? 'active' : ''}`}>
             <button disabled={busy} onClick={() => { setActiveId(item.id); setCropping(false); setRatio('free') }}><img src={item.url} alt="" /><span>{item.file.name}</span></button>

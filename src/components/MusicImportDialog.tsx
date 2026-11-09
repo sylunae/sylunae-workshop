@@ -1,3 +1,4 @@
+import { isAndroid } from '../platform/environment'
 import { useEffect, useId, useRef, useState } from 'react'
 import { ArrowLeft, Clock3, FileAudio, FolderOpen, Link2, Search, Video } from 'lucide-react'
 import type { MusicImportProgress, MusicImportStage, MusicRemoteSource, MusicTrack, YoutubeVideoSearchResult } from '../shared/types'
@@ -67,13 +68,14 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
   const [searched, setSearched] = useState(false)
   const [mediaToolsOpen, setMediaToolsOpen] = useState(false)
   const activeTaskId = useRef<string | null>(null)
+  const resumeRemoteForm = useRef(false)
 
   useEffect(() => window.sylunae?.music.onImportProgress((next) => {
     if (next.taskId === activeTaskId.current) setProgress(next)
   }), [])
 
   useEffect(() => {
-    if (!open || !window.sylunae) return
+    if (!open || !window.sylunae || resumeRemoteForm.current) return
     setStep('choose')
     setUrl('')
     setError('')
@@ -81,17 +83,19 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
     setSearchQuery('')
     setSearchResults([])
     setSearched(false)
-    activeTaskId.current = null
     void window.sylunae.music.getDownloadDirectory().then(setDirectory).catch((reason) => setError(readableError(reason)))
   }, [open])
 
   const importFiles = async () => {
     if (!window.sylunae) return
+    if (busy) return
+    setBusy(true)
     setError('')
     try {
       const tracks = await window.sylunae.music.pick()
       if (tracks.length) { onImported(tracks); onOpenChange(false) }
     } catch (reason) { setError(readableError(reason)) }
+    finally { setBusy(false) }
   }
 
   const chooseDirectory = async () => {
@@ -136,7 +140,7 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
   }
 
   const importRemote = async () => {
-    if (!window.sylunae || step === 'choose') return
+    if (!window.sylunae || step === 'choose' || busy || activeTaskId.current) return
     const cleanUrl = url.trim()
     if (!cleanUrl) { setError('请输入链接'); return }
     try {
@@ -146,12 +150,14 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
     if (!directory) { setError('请先选择文件保存位置'); return }
     const taskId = crypto.randomUUID()
     activeTaskId.current = taskId
+    resumeRemoteForm.current = true
     setBusy(true)
     setError('')
     setProgress(null)
     try {
-    const track = await window.sylunae.music.importRemote({ taskId, source: step, url: cleanUrl, directory })
+      const track = await window.sylunae.music.importRemote({ taskId, source: step, url: cleanUrl, directory })
       onImported([track])
+      resumeRemoteForm.current = false
       onOpenChange(false)
     } catch (reason) {
       setError(readableError(reason))
@@ -162,24 +168,30 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
   }
 
   const copy = step === 'choose' ? null : methodCopy[step]
+  const downloading = busy && step !== 'choose'
+  const changeOpen = (next: boolean) => {
+    if (!next && busy && !activeTaskId.current) return
+    if (!next && !activeTaskId.current) resumeRemoteForm.current = false
+    onOpenChange(next)
+  }
 
-  return <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next) }}>
+  return <Dialog open={open} onOpenChange={changeOpen}>
     <DialogContent className="music-import-dialog" size="md">
       {step === 'choose' ? <>
         <DialogHeader>
           <DialogTitle>添加音乐</DialogTitle>
-          <DialogDescription>选择一种方式加入音乐资料库。</DialogDescription>
+            <DialogDescription>{isAndroid ? '选择手机中的音频，或先将电脑音乐通过 USB 等方式传到手机。导入文件保存在应用私有目录。' : '选择一种方式加入音乐资料库。'}</DialogDescription>
         </DialogHeader>
         <div className="music-import-methods">
-          <button type="button" onClick={() => void importFiles()}>
+          <button type="button" onClick={() => void importFiles()} disabled={busy}>
             <span><FileAudio /></span>
-            <div><strong>从文件导入</strong><small>选择电脑中已有的一个或多个音频文件</small></div>
+            <div><strong>{busy ? '正在导入…' : '从文件导入'}</strong><small>{isAndroid ? '批量选择音频并复制到应用私有目录' : '选择电脑中已有的一个或多个音频文件'}</small></div>
           </button>
-          <button type="button" onClick={() => void chooseYoutube()}>
+          {!isAndroid && <button type="button" onClick={() => void chooseYoutube()} disabled={busy}>
             <span><Video /></span>
             <div><strong>从 YouTube 链接导入</strong><small>转换为 MP3，并提取视频元信息</small></div>
-          </button>
-          <button type="button" onClick={() => setStep('audio-url')}>
+          </button>}
+          <button type="button" onClick={() => setStep('audio-url')} disabled={busy}>
             <span><Link2 /></span>
             <div><strong>从音频链接下载</strong><small>下载在线音频文件并保存在本地</small></div>
           </button>
@@ -188,7 +200,7 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
       </> : <>
         <DialogHeader className="music-import-header">
           <button type="button" className="music-import-back" onClick={() => { setStep('choose'); setError('') }} disabled={busy} aria-label="返回导入方式"><ArrowLeft /></button>
-          <div><DialogTitle>{copy?.title}</DialogTitle><DialogDescription>{copy?.description}</DialogDescription></div>
+          <div><DialogTitle>{copy?.title}</DialogTitle><DialogDescription>{isAndroid ? '将 HTTPS 音频直链下载到应用内，离线与后台均可播放。' : copy?.description}</DialogDescription></div>
         </DialogHeader>
         <div className="music-import-form">
           {step === 'youtube' && <>
@@ -208,10 +220,10 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
           <label htmlFor={inputId}>链接</label>
           <Input id={inputId} autoFocus value={url} onChange={(event) => { setUrl(event.target.value); setError('') }} onKeyDown={(event) => { if (event.key === 'Enter' && !busy) void importRemote() }} placeholder={copy?.placeholder} disabled={busy} />
           <label>文件保存位置</label>
-          <button type="button" className="music-import-directory" onClick={() => void chooseDirectory()} disabled={busy} title={directory || '选择文件保存位置'}>
-            <FolderOpen /><span>{directory || '正在读取默认位置…'}</span><strong>更改</strong>
+          <button type="button" className="music-import-directory" onClick={() => void chooseDirectory()} disabled={busy || isAndroid} title={directory || '选择文件保存位置'}>
+            <FolderOpen /><span>{directory || '正在读取默认位置…'}</span><strong>{isAndroid ? '应用内存储' : '更改'}</strong>
           </button>
-          <p className="music-import-hint">下载完成后会自动加入资料库。默认保存在丝月工坊的应用数据文件夹中。</p>
+          <p className="music-import-hint">{downloading ? '关闭弹窗后下载会继续，重新打开「添加音乐」可查看进度。完成后会自动加入资料库。' : '下载完成后会自动加入资料库。默认保存在丝月工坊的应用数据文件夹中。'}</p>
           {busy && progress && <div className="music-import-progress" aria-live="polite">
             <div className="music-import-progress-label"><strong>{progress.message}</strong>{progress.source === 'audio-url' && <span>{progress.percent === null ? (progress.receivedBytes ? formatBytes(progress.receivedBytes) : '') : `${progress.percent}%`}</span>}</div>
             {progress.source === 'audio-url' ? <>
@@ -228,7 +240,7 @@ export function MusicImportDialog({ open, onOpenChange, onImported }: {
           {error && <p className="music-import-error">{error}</p>}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>取消</Button>
+          <Button variant="outline" onClick={() => changeOpen(false)}>{downloading ? '后台继续' : '取消'}</Button>
           <Button onClick={() => void importRemote()} disabled={busy || !url.trim() || !directory}>
             {busy && <span className="spinner small" aria-hidden />}{busy ? '正在处理…' : '下载并导入'}
           </Button>

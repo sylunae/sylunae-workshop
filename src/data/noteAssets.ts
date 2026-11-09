@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type { JSONContent } from '@tiptap/core'
 import type { AppSnapshot, Note } from '../shared/types'
+import { portableAndroidSnapshot } from '../platform/portableAssets'
 import { applicationDatabaseName } from '../lib/storageEnvironment'
 
 export const noteAssetPrefix = 'sylunae-note-asset:'
@@ -92,6 +93,7 @@ export async function noteImageDataUrl(reference: string): Promise<string> {
 
 /** Exports remain self-contained and compatible with older installations. */
 export async function portableNoteSnapshot(snapshot: AppSnapshot): Promise<AppSnapshot> {
+  if (window.sylunae?.platform === 'android') return portableAndroidSnapshot(snapshot)
   const cache = new Map<string, Promise<string>>()
   const notes: Note[] = []
   for (const note of snapshot.notes) {

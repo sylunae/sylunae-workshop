@@ -190,6 +190,12 @@
   backdrop-filter: blur(16px);
 }
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+html[data-platform='android'] { --titlebar-height: 0px; }
+html[data-platform='android'] .content-shell { border-radius: 0; }
+html[data-platform='android'] .track-play { min-width: 44px; min-height: 44px; }
+html[data-platform='android'] .track-actions button { min-width: 40px; min-height: 40px; }
+html[data-platform='android'] .track-actions { opacity: 1; }
+html[data-platform='android'] input, html[data-platform='android'] textarea { font-size: max(14px, 1em); }
 body { background: var(--bg); color: var(--text); }
 button, input, textarea, select { font: inherit; }
 button, select { cursor: pointer; }
@@ -1038,6 +1044,9 @@ input, textarea, select { color: var(--text); }
 .tool-entry-card p { margin: 7px 0 20px; color: var(--muted-text); font-size: 12px; line-height: 1.65; }
 .tool-entry-action { margin-top: auto; color: var(--text); font-size: 12px; font-weight: 600; }
 .tool-entry-action span { margin-left: 5px; }
+.music-toolbox-page { display: flex; flex-direction: column; }
+.music-toolbox-page > .page-header { flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: 12px; }
+.music-toolbox-frame { display: block; flex: 1; width: 100%; min-height: 360px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
 .snippet-grid, .launcher-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 13px; }
 .snippet-category-create { display: flex; gap: 9px; margin: -4px 0 20px; }
 .snippet-home-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 22px; }
@@ -2147,7 +2156,7 @@ input[type='range'] { height: 3px; accent-color: var(--brand); }
   .snippet-category-create, .snippet-quick-composer > div { align-items: stretch; flex-direction: column; }
   .snippet-category-create .button, .snippet-quick-composer .button { width: 100%; }
   .music-library-toolbar { height: auto; align-items: stretch; flex-direction: column; }
-  .music-library-toolbar .search-box { min-width: 100%; }
+  .music-library-toolbar .search-box { min-width: 0; width: 100%; flex: 0 0 40px; height: 40px; }
   .music-album-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px 10px; }
   .music-header-actions { align-items: flex-end; flex-direction: column-reverse; }
   .white-noise-page { padding-bottom: 132px; }
@@ -2469,3 +2478,22 @@ input[type='range'] { height: 3px; accent-color: var(--brand); }
 .conversion-result span { display: block; margin-top: 5px; color: var(--muted-text); font-size: 13px; }
 @media (max-width: 1000px) { .conversion-categories { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .conversion-categories { grid-template-columns: 1fr; } .conversion-queue { padding: 12px; } .conversion-results .panel-heading { flex-wrap: wrap; gap: 12px; } }
+
+/* Touch controls stay available without hover on the Android client. */
+html[data-platform='android'] .image-source-section,
+html[data-platform='android'] .image-refresh { display: none; }
+@media (max-width: 760px) {
+  html[data-platform='android'] .track-head { display: none; }
+  html[data-platform='android'] .track-row { grid-template-columns: 44px minmax(0, 1fr) 40px; gap: 8px; min-height: 64px; padding: 8px 10px; font-size: 14px; }
+  html[data-platform='android'] .track-title { min-width: 0; }
+  html[data-platform='android'] .track-title strong { font-size: 14px; }
+  html[data-platform='android'] .track-title span { font-size: 13px; }
+  html[data-platform='android'] .track-actions { display: flex; grid-column: 3; grid-row: 1; justify-content: flex-end; }
+  html[data-platform='android'] .track-row > span:not(.track-select-cell) { display: none; }
+  html[data-platform='android'] .player-bar { height: auto; min-height: 132px; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 16px; }
+  html[data-platform='android'] .player-track { min-width: 0; }
+  html[data-platform='android'] .player-controls button { min-width: 40px; min-height: 40px; }
+  html[data-platform='android'] .player-center { min-width: 0; width: 100%; }
+  html[data-platform='android'] .progress-control { font-size: 12px; grid-template-columns: 40px minmax(0, 1fr) 40px; }
+  html[data-platform='android'] .music-page, html[data-platform='android'] .white-noise-page { padding-bottom: 180px; }
+}

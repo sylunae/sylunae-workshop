@@ -1,0 +1,84 @@
+apply plugin: 'com.android.application'
+
+def releaseProperties = new Properties()
+def releasePropertiesFile = rootProject.file('../.android-signing/signing.properties')
+if (releasePropertiesFile.exists()) releasePropertiesFile.withInputStream { releaseProperties.load(it) }
+
+android {
+    namespace = "studio.sylunae.workshop"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "studio.sylunae.workshop"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 2
+        versionName "0.1.1"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (releasePropertiesFile.exists()) {
+                storeFile rootProject.file('../.android-signing/release.keystore')
+                storePassword releaseProperties.getProperty('storePassword')
+                keyAlias releaseProperties.getProperty('keyAlias')
+                keyPassword releaseProperties.getProperty('keyPassword')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name == 'preReleaseBuild') task.doFirst {
+        def configFile = file('src/main/assets/capacitor.config.json')
+        if (configFile.exists() && new groovy.json.JsonSlurper().parse(configFile).server?.url) {
+            throw new GradleException('Release builds cannot contain a live reload URL. Run npm run build:android without SYLUNAE_ANDROID_DEV_URL first.')
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation "androidx.media3:media3-exoplayer:1.9.3"
+    implementation "androidx.media3:media3-session:1.9.3"
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

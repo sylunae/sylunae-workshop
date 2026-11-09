@@ -1,3 +1,4 @@
+import { saveBlob } from '../platform/saveFile'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   AudioLines,
@@ -259,15 +260,10 @@ export function AudioEditor() {
     pause();
     setExporting(true);
     setError("");
-    window.setTimeout(() => {
+    window.setTimeout(async () => {
       try {
         const blob = encodeWav(buffer, selection[0], selection[1], volume / 100, fadeIn, fadeOut);
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = `${safeBaseName(file.name)}-剪辑.wav`;
-        anchor.click();
-        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        await saveBlob(`${safeBaseName(file.name)}-剪辑.wav`, blob);
       } catch {
         setError("导出失败，音频可能过长或设备内存不足。请缩短选区后重试。");
       } finally {

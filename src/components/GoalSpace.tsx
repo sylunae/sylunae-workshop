@@ -86,7 +86,7 @@ export function GoalSpace({ goals, onClose, onOpenGoal }: { goals: Goal[]; onClo
   const completedCount = visibleGoals.filter((goal) => goal.status === 'completed').length
   const milestoneCount = visibleGoals.reduce((sum, goal) => sum + goal.milestones.length, 0)
 
-  return <section className={`goal-space${window.sylunae ? ' is-desktop' : ''}`} aria-label="目标关系空间">
+  return <section className={`goal-space${window.sylunae?.platform === 'electron' ? ' is-desktop' : ''}`} aria-label="目标关系空间">
     <header className="goal-space-header">
       <Button variant="ghost" className="goal-space-back" onClick={onClose}><ArrowLeft size={17} />返回目标追踪</Button>
       <div className="goal-space-title"><span><Target size={17} /></span><div><strong>目标空间</strong><small>{visibleGoals.length} 个目标 · {milestoneCount} 项关键成果 · {completedCount} 个已完成</small></div></div>

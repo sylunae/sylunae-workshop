@@ -2,6 +2,8 @@
 
 丝月工坊是一个本地优先的个人工具总站，使用 React、TypeScript、Vite 与 Electron 构建。桌面版使用 SQLite 保存数据，网页轻量版使用 IndexedDB。
 
+Android 客户端通过 Capacitor 复用现有前端，使用私有目录、原生 SQLite 与 Media3 后台播放器。构建、安装及电脑数据迁移见 [Android 开发与使用说明](docs/android.md)。
+
 ## 首版功能
 
 - 匿名读取并缓存一个 Bangumi 用户的公开收藏，支持五类条目、筛选、排序和详情查看

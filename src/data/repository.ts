@@ -1,5 +1,6 @@
 import { externalizeNoteImages } from './noteAssets'
 import { applicationDatabaseName } from '../lib/storageEnvironment'
+import { resolveAndroidFiles } from '../platform/transfer'
 import Dexie, { type EntityTable } from 'dexie'
 import { createDefaultSnapshot } from '../shared/defaults'
 import type { AppSnapshot, AppSnapshotPatch, DeskCompanionCharacter, DeskCompanionSettings, HomeQuickActionId, Note } from '../shared/types'
@@ -189,7 +190,8 @@ export const repository = {
     savedNotes = nextNotes
   },
   async replace(snapshot: AppSnapshot): Promise<AppSnapshot> {
-    const safe = normalize(snapshot)
+    let safe = normalize(snapshot)
+    if (window.sylunae?.platform === 'android') safe = await resolveAndroidFiles(safe, window.sylunae.music.checkPaths)
     safe.notes = await externalizeNoteImages(safe.notes)
     if (window.sylunae) await window.sylunae.storage.replace(safe)
     else {

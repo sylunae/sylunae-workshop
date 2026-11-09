@@ -3,6 +3,9 @@ import { repository } from '../data/repository'
 import { changedSnapshotSections, snapshotPatchEntries } from '../data/snapshotSections'
 import type { AppSnapshot, AppSnapshotPatch } from '../shared/types'
 import { removeExpiredTodos, todoExpiresAt } from '../todos/cleanup'
+import { flushSync } from 'react-dom'
+import { App as CapacitorApp } from '@capacitor/app'
+import { isAndroid } from '../platform/environment'
 
 interface AppStoreValue {
   snapshot: AppSnapshot | null
@@ -26,6 +29,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const pendingPatch = useRef<AppSnapshotPatch>({})
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
   const queuedSaveId = useRef(0)
+  const replacing = useRef(false)
 
   useEffect(() => {
     repository.load()
@@ -57,8 +61,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [persist])
 
   const update = useCallback((recipe: (current: AppSnapshot) => AppSnapshot) => {
+    if (replacing.current) return
     setSnapshot((current) => {
-      if (!current) return current
+      if (!current || replacing.current) return current
       const next = recipe(current)
       if (next === current) return current
       latest.current = next
@@ -96,19 +101,31 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [todos, update])
 
   const flush = useCallback(async () => {
+    flushSync(() => window.dispatchEvent(new Event('sylunae:flush-editors')))
     await drainPending()
     await saveQueue.current
     return latest.current
   }, [drainPending])
 
+  useEffect(() => {
+    const saveBeforeSuspend = () => { if (document.visibilityState === 'hidden') void flush().catch(() => setError('保存失败，请重新打开后重试')) }
+    document.addEventListener('visibilitychange', saveBeforeSuspend)
+    const mobile = isAndroid ? CapacitorApp.addListener('appStateChange', ({ isActive }) => { if (!isActive) void flush().catch(() => setError('保存失败，请重新打开后重试')) }) : null
+    return () => { document.removeEventListener('visibilitychange', saveBeforeSuspend); void mobile?.then((handle) => handle.remove()) }
+  }, [flush])
+
   const replace = useCallback(async (value: AppSnapshot) => {
-    if (timer.current) { clearTimeout(timer.current); timer.current = null }
-    pendingPatch.current = {}
-    await saveQueue.current
-    const persisted = await repository.replace(value)
-    latest.current = persisted
-    setSnapshot(persisted)
-  }, [])
+    if (replacing.current) throw new Error('正在导入，请等待当前操作完成。')
+    flushSync(() => window.dispatchEvent(new Event('sylunae:flush-editors')))
+    replacing.current = true
+    try {
+      await drainPending()
+      const operation = saveQueue.current.then(() => repository.replace(value))
+      saveQueue.current = operation.then(() => undefined, () => undefined)
+      const persisted = await operation; latest.current = persisted; setSnapshot(persisted)
+    }
+    finally { replacing.current = false }
+  }, [drainPending])
 
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current)

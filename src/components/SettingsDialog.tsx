@@ -1,3 +1,6 @@
+import { isAndroid } from '../platform/environment'
+import { version as appVersion } from '../../package.json'
+import { portableAndroidValue } from '../platform/portableAssets'
 import { portableNoteSnapshot } from '../data/noteAssets'
 import { useEffect, useRef, useState } from 'react'
 import { BellRing, Check, CheckCircle2, ClipboardPaste, Code2, Copy, Database, Download, ExternalLink, EyeOff, FileWarning, FolderOpen, Globe2, HardDrive, Info, Laptop, Link2, Moon, PackageOpen, Palette, Play, RotateCcw, Settings, ShieldCheck, Sparkles, Sun, Undo2, Upload, UserRound, X } from 'lucide-react'
@@ -116,7 +119,8 @@ function SettingsPanel() {
       const current = await flush()
       if (!current) return
       const item = partialBackupSectionMeta.find((entry) => entry.id === section)!
-      const contents = JSON.stringify(createPartialBackup(section === 'notes' ? await portableNoteSnapshot(current) : current, section), null, 2)
+      const backup = createPartialBackup(section === 'notes' && !isAndroid ? await portableNoteSnapshot(current) : current, section)
+      const contents = JSON.stringify(isAndroid ? await portableAndroidValue(backup) : backup, null, 2)
       await downloadContents(contents, `siyue-${section}-backup-${new Date().toISOString().slice(0, 10)}.json`, `“${item.label}”局部备份已导出。`)
     } catch { setMessage('导出失败：请确认笔记图片可读取，并重试。') }
   }
@@ -128,12 +132,14 @@ function SettingsPanel() {
     }
   }
   const importBackup = async () => {
-    if (window.sylunae) {
+    try { if (window.sylunae) {
+      setMessage('正在读取并整理备份，大文件可能需要一些时间…')
       const contents = await window.sylunae.backup.importFile()
+      setMessage('')
       if (contents) await applyImport(contents)
     } else {
       importInput.current?.click()
-    }
+    } } catch (cause) { setMessage(cause instanceof Error ? cause.message : '备份读取失败，原数据已保留。') }
   }
   const applyPartialImport = async (contents: string) => {
     try {
@@ -143,12 +149,12 @@ function SettingsPanel() {
     }
   }
   const importPartialBackup = async () => {
-    if (window.sylunae) {
+    try { if (window.sylunae) {
       const contents = await window.sylunae.backup.importFile()
       if (contents) await applyPartialImport(contents)
     } else {
       partialImportInput.current?.click()
-    }
+    } } catch (cause) { setMessage(cause instanceof Error ? cause.message : '备份读取失败，原数据已保留。') }
   }
 
   return <div className="settings-layout">
@@ -287,7 +293,7 @@ function FocusSettings({ alarmPath, onAlarmPathChange }: { alarmPath: string; on
     unlockPomodoroAlarm()
     playPomodoroAlarm(alarmPath)
   }
-  return <section className="settings-pane focus-settings"><SettingHeading icon={<BellRing />} title="番茄钟提示音" description="专注或休息结束时播放；未设置时使用默认的柔和钟铃。" /><div className="alarm-source"><div className="alarm-source-icon"><BellRing size={18} /></div><div><strong className={fileName ? 'user-content' : undefined}>{fileName || '默认钟铃'}</strong><small>{fileName ? '已选择自定义本地音频' : desktop ? '三声渐进的柔和提示音' : '自定义音频仅在桌面端可用'}</small></div></div><div className="alarm-actions"><Button variant="outline" className="button secondary" onClick={() => void chooseAlarm()} disabled={!desktop || choosing}><FolderOpen size={16} />{choosing ? '正在选择…' : '选择音频'}</Button><Button variant="outline" className="button secondary" onClick={previewAlarm} disabled={!desktop}><Play size={16} fill="currentColor" />试听</Button>{fileName && <Button variant="ghost" className="button alarm-reset" onClick={() => onAlarmPathChange('')}><RotateCcw size={16} />恢复默认</Button>}</div><small className="settings-note">支持 MP3、M4A、WAV、OGG、FLAC 等本地音频。若文件被移动或无法读取，将自动使用默认钟铃。</small></section>
+  return <section className="settings-pane focus-settings"><SettingHeading icon={<BellRing />} title="番茄钟提示音" description="专注或休息结束时播放；未设置时使用默认的柔和钟铃。" /><div className="alarm-source"><div className="alarm-source-icon"><BellRing size={18} /></div><div><strong className={fileName ? 'user-content' : undefined}>{fileName || '默认钟铃'}</strong><small>{fileName ? '已选择自定义本地音频' : desktop ? '三声渐进的柔和提示音' : '自定义音频为客户端专属功能'}</small></div></div><div className="alarm-actions"><Button variant="outline" className="button secondary" onClick={() => void chooseAlarm()} disabled={!desktop || choosing}><FolderOpen size={16} />{choosing ? '正在选择…' : '选择音频'}</Button><Button variant="outline" className="button secondary" onClick={previewAlarm} disabled={!desktop}><Play size={16} fill="currentColor" />试听</Button>{fileName && <Button variant="ghost" className="button alarm-reset" onClick={() => onAlarmPathChange('')}><RotateCcw size={16} />恢复默认</Button>}</div><small className="settings-note">支持 MP3、M4A、WAV、OGG、FLAC 等本地音频。若文件被移动或无法读取，将自动使用默认钟铃。</small></section>
 }
 
 function DataSettings({ counts, onExport, onImport, inputRef, onFile, onExportPartial, onImportPartial, partialInputRef, onPartialFile }: { counts: { notes: number; goals: number; tracks: number }; onExport: () => void; onImport: () => void; inputRef: React.RefObject<HTMLInputElement | null>; onFile: (file: File) => void; onExportPartial: (section: PartialBackupSection) => void; onImportPartial: () => void; partialInputRef: React.RefObject<HTMLInputElement | null>; onPartialFile: (file: File) => void }) {
@@ -295,13 +301,13 @@ function DataSettings({ counts, onExport, onImport, inputRef, onFile, onExportPa
 }
 
 function AboutSettings() {
-  const desktop = Boolean(window.sylunae)
+  const desktop = window.sylunae?.platform === 'electron'
   const [toolsStatus, setToolsStatus] = useState<MediaToolsStatus | null>(null)
   const [toolsDialogOpen, setToolsDialogOpen] = useState(false)
   const refreshTools = () => { if (desktop) void window.sylunae!.music.getMediaToolsStatus().then(setToolsStatus) }
   useEffect(refreshTools, [desktop])
   return <div className="about-settings">
-    <section className="settings-pane"><SettingHeading icon={desktop ? <HardDrive /> : <Globe2 />} title="运行环境" description={desktop ? 'Electron 桌面版' : '浏览器轻量版'} /><dl className="environment-list"><div><dt>数据位置</dt><dd>{desktop ? '本机 SQLite 数据库' : '浏览器 IndexedDB'}</dd></div><div><dt>本地音乐</dt><dd>{desktop ? '可用' : '仅桌面版可用'}</dd></div><div><dt>云端同步</dt><dd>未启用</dd></div><div><dt>应用版本</dt><dd>0.1.0</dd></div></dl></section>
+    <section className="settings-pane"><SettingHeading icon={desktop || isAndroid ? <HardDrive /> : <Globe2 />} title="运行环境" description={isAndroid ? 'Android 客户端' : desktop ? 'Electron 桌面版' : '浏览器轻量版'} /><dl className="environment-list"><div><dt>数据位置</dt><dd>{isAndroid ? '应用私有目录 · SQLite 数据库' : desktop ? '本机 SQLite 数据库' : '浏览器 IndexedDB'}</dd></div><div><dt>本地音乐</dt><dd>{isAndroid ? '可用 · 支持后台播放' : desktop ? '可用' : '客户端专属'}</dd></div><div><dt>云端同步</dt><dd>未启用</dd></div><div><dt>应用版本</dt><dd>{appVersion}</dd></div></dl></section>
     {desktop && <section className="settings-pane media-tools-pane">
       <SettingHeading icon={<PackageOpen />} title="媒体工具" description="按需启用 YouTube 音频导入能力。" />
       <div className="media-tools-card"><span className={toolsStatus?.ready ? 'ready' : ''}>{toolsStatus?.ready ? <CheckCircle2 /> : <Download />}</span><div><strong>{toolsStatus?.ready ? '媒体工具已安装' : '媒体工具尚未安装'}</strong><small>{toolsStatus?.ready ? 'FFmpeg 与 yt-dlp 已准备完成' : '使用时再下载，约占用 96 MB 本地空间'}</small></div></div>

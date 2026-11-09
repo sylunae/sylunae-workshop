@@ -4,10 +4,14 @@ import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'node:path'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), {
+    name: 'local-development-csp', apply: 'serve',
+    transformIndexHtml: { order: 'post', handler: (html) => html.replace(/<meta\s+http-equiv="Content-Security-Policy"[^>]*>/i, '') },
+  }],
   // This is a public, read-only CDN address.  Keeping the same prefix as the
   // desktop process means web and desktop builds use one resource setting.
   envPrefix: ['VITE_', 'MAIN_VITE_'],
   resolve: { alias: { '@': resolve(__dirname, 'src') } },
+  server: { watch: { ignored: ['**/.android-tools/**', '**/.android-signing/**', '**/android/**', '**/out/**', '**/release/**'] } },
   build: { outDir: 'dist' },
 })

@@ -11,6 +11,9 @@ import { accessibleForeground, themeColorFields, themeCssVariables, themeDerived
 import { TooltipProvider } from './components/ui/tooltip'
 import { playPomodoroAlarm, unlockPomodoroAlarm } from './utils/pomodoroAlarm'
 import { usePersistentState, useSessionState } from './lib/usePersistentState'
+import { isAndroid, isElectron } from './platform/environment'
+import { App as CapacitorApp } from '@capacitor/app'
+import { syncAndroidPomodoro } from './platform/reminders'
 
 const MusicPage = lazy(() => import('./pages/MusicPage').then((module) => ({ default: module.MusicPage })))
 const WhiteNoisePage = lazy(() => import('./pages/WhiteNoisePage').then((module) => ({ default: module.WhiteNoisePage })))
@@ -37,7 +40,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsMounted, setSettingsMounted] = useState(false)
   const [funFeaturesOpen, setFunFeaturesOpen] = useState(false)
-  const [musicMounted, setMusicMounted] = useState(false)
+  const [musicMounted, setMusicMounted] = useState(isAndroid)
   const [nowPlaying, setNowPlaying] = useState<MusicTrack | null>(null)
   const [nowPlayingAmbient, setNowPlayingAmbient] = useState<ResourceItem | null>(null)
   const [pageScrolled, setPageScrolled] = useState(false)
@@ -49,6 +52,19 @@ export default function App() {
   const [collectionView, setCollectionView] = usePersistentState<'bangumi' | 'images' | 'rss'>('navigation.collectionView', 'bangumi')
   const [musicView, setMusicView] = usePersistentState<'tracks' | 'albums'>('navigation.musicView', 'tracks')
   const [homeIntent, setHomeIntent] = useState<'new-note' | 'todos' | 'pomodoro' | 'clipboard' | null>(null)
+
+  useEffect(() => {
+    if (!isAndroid) return
+    const listener = CapacitorApp.addListener('backButton', () => {
+      if (document.querySelector('[role="dialog"][data-state="open"]')) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))
+      } else if (settingsOpen) setSettingsOpen(false)
+      else if (mobileOpen) setMobileOpen(false)
+      else if (activeTool !== 'home') setActiveTool('home')
+      else void CapacitorApp.minimizeApp()
+    })
+    return () => { void listener.then((handle) => handle.remove()) }
+  }, [activeTool, mobileOpen, settingsOpen, setActiveTool])
 
   useLayoutEffect(() => {
     if (!snapshot) return
@@ -66,6 +82,7 @@ export default function App() {
       document.documentElement.style.setProperty(themeDerivedCssVariables.sidebarPrimaryForeground, primaryForeground)
       document.documentElement.style.colorScheme = effective
       document.querySelector('meta[name="theme-color"]')?.setAttribute('content', palette.bg)
+      void window.sylunae?.system.setTheme?.(effective, palette.bg).catch(() => {})
       try {
         const palettes = Object.fromEntries((['light', 'dark'] as const).map((mode) => [mode,
           Object.fromEntries(themeColorFields.map(({ key }) => [themeCssVariables[key], snapshot.settings.themePalettes[mode][key]])),
@@ -100,6 +117,10 @@ export default function App() {
     if (activeTool === 'music') setMusicMounted(true)
   }, [activeTool])
 
+  useEffect(() => {
+    if (isAndroid && snapshot) void syncAndroidPomodoro(snapshot.pomodoro).catch(() => {})
+  }, [snapshot?.pomodoro.running, snapshot?.pomodoro.endsAt, snapshot?.pomodoro.mode])
+
   useEffect(() => setPageScrolled(false), [activeTool, musicSection])
 
   useEffect(() => {
@@ -119,8 +140,8 @@ export default function App() {
       })
       const focusCompleted = snapshot.pomodoro.mode === 'focus'
       playPomodoroAlarm(snapshot.settings.pomodoroAlarmPath)
-      if (window.sylunae) void window.sylunae.system.notifyPomodoroComplete(focusCompleted)
-      else if ('Notification' in window && Notification.permission === 'granted') new Notification('丝月工坊', { body: focusCompleted ? '本轮专注完成，休息一下吧。' : '休息结束，准备开始下一轮专注。' })
+      if (window.sylunae && !isAndroid) void window.sylunae.system.notifyPomodoroComplete(focusCompleted)
+      else if (!isAndroid && 'Notification' in window && Notification.permission === 'granted') new Notification('丝月工坊', { body: focusCompleted ? '本轮专注完成，休息一下吧。' : '休息结束，准备开始下一轮专注。' })
     }
     tick()
     const id = window.setInterval(tick, 1000)
@@ -205,7 +226,7 @@ export default function App() {
 
   return <BirthdayNotifications><TooltipProvider><div className="app-shell" style={{ '--sidebar-width': `${renderedSidebarWidth}px` } as CSSProperties}>
     <Sidebar active={activeTool} taskView={taskView} collectionView={collectionView} musicSection={musicSection} musicView={musicView} collapsed={snapshot.settings.sidebarCollapsed} width={renderedSidebarWidth} mobileOpen={mobileOpen} settingsOpen={settingsOpen} funFeaturesOpen={funFeaturesOpen} nowPlaying={nowPlaying} nowPlayingAmbient={nowPlayingAmbient} onSelect={selectTool} onSelectTaskView={selectTaskView} onSelectCollectionView={selectCollectionView} onSelectMusicSection={selectMusicSection} onSelectMusicView={selectMusicView} onOpenSettings={openSettings} onOpenFunFeatures={openFunFeatures} onResize={resizeSidebar} onOpen={() => setMobileOpen(true)} onClose={() => setMobileOpen(false)} />
-    {window.sylunae && <div className={`app-titlebar ${pageScrolled ? 'scrolled' : ''} ${snapshot.pomodoro.running ? 'pomodoro-running' : ''}`}>
+    {isElectron() && <div className={`app-titlebar ${pageScrolled ? 'scrolled' : ''} ${snapshot.pomodoro.running ? 'pomodoro-running' : ''}`}>
       <div className="app-titlebar-drag" />
       {snapshot.pomodoro.running && <button type="button" className="pomodoro-titlebar" onClick={openPomodoro} aria-label={`打开番茄钟：${pomodoroModeLabels[snapshot.pomodoro.mode]}中，剩余 ${pomodoroTime}`}>
         <Clock3 size={14} strokeWidth={1.8} /><span>{pomodoroModeLabels[snapshot.pomodoro.mode]}中</span><strong>{pomodoroTime}</strong>

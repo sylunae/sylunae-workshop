@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">丝月工坊</string>
+    <string name="title_activity_main">丝月工坊</string>
+    <string name="package_name">studio.sylunae.workshop</string>
+    <string name="custom_url_scheme">studio.sylunae.workshop</string>
+</resources>

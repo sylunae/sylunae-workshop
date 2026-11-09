@@ -1,3 +1,4 @@
+import { isAndroid } from '../platform/environment'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, CalendarPlus, CheckSquare2, ChevronRight, FolderInput, FolderOpen, HardDrive, Image as ImageIcon, Images, LocateFixed, Maximize2, MoreHorizontal, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { useAppStore } from '../app/AppStore'
@@ -454,7 +455,7 @@ export function ImageGalleryPage() {
     setViewerOpen(true)
   }
 
-  if (!window.sylunae) return <div className="image-desktop-only"><HardDrive size={30} /><h2>精选图片仅在桌面端开放</h2><p>浏览器无法持续、安全地读取本地图片。请使用丝月工坊桌面版建立图片收藏。</p></div>
+  if (!window.sylunae) return <div className="image-desktop-only"><HardDrive size={30} /><h2>客户端专属</h2><p>请使用支持本地图片库的丝月工坊客户端建立图片收藏。</p></div>
 
   return <div ref={contentRef} className="image-library-shell">
     <div className="image-library-toolbar">
@@ -462,7 +463,7 @@ export function ImageGalleryPage() {
       <div className="image-type-filters">{([['all', '全部'], ['landscape', '横图'], ['portrait', '竖图'], ['square', '方图']] as const).map(([value, label]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{label}</button>)}</div>
       <div className="image-toolbar-actions">
         <Select value={sort} onValueChange={(value) => setSort(value as GallerySort)}><SelectTrigger className="image-sort"><SlidersHorizontal size={15} /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="recent">按最近收藏</SelectItem><SelectItem value="name">按文件名</SelectItem></SelectContent></Select>
-        <Button variant="outline" onClick={() => setFolderImportOpen(true)}><FolderInput size={16} />导入文件夹</Button>
+        {!isAndroid && <Button variant="outline" onClick={() => setFolderImportOpen(true)}><FolderInput size={16} />导入文件夹</Button>}
         <Button onClick={() => void addImages()} disabled={busy}><Plus size={16} />添加图片</Button>
       </div>
     </div>
