@@ -14,7 +14,7 @@ pnpm run package:android
 
 签名 Release APK 输出到 `release/Sylunae-Workshop-0.1.1-Android.apk`，可传到手机直接安装。首次构建会在 `.android-signing` 创建自用签名，之后复用该签名。**请备份整个 `.android-signing` 文件夹，包括密钥和属性文件；丢失后无法用原签名覆盖升级。** 此目录、SDK 和本地机器路径均不进入 Git。
 
-开发包使用 `pnpm run package:android:debug`。Debug 使用独立的 `.debug` 包名和数据目录，可以和正式版共存，设备测试不修改正式版数据。更新正式版本时同步递增 `android/app/build.gradle` 的 `versionCode`，修改 `versionName` 与根目录版本号。
+开发包使用 `pnpm run package:android:debug`。Debug 使用独立的 `.debug` 包名和数据目录，可以和正式版共存，设备测试不修改正式版数据。
 
 ```powershell
 pnpm run build:android  # 构建前端并同步到 Android 工程
@@ -23,6 +23,19 @@ pnpm run test:android   # 已连接手机/已启动模拟器时执行原生测�
 ```
 
 正式包内置前端资源，离线即可启动，不依赖电脑运行开发服务器。网络服务如 Bangumi、天气和可选资源下载仍需要网络。
+
+## GitHub 发版与手机更新
+
+在 GitHub 仓库的 **Settings → Secrets and variables → Actions → New repository secret** 添加原有签名的两个 Secrets。使用当前正式包的签名，升级时才能保留手机上的私有数据。
+
+- `ANDROID_KEYSTORE_BASE64` 使用现有 `.android-signing/release.keystore` 的 Base64。可在本机 PowerShell 运行 `[Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path '.android-signing/release.keystore').Path)) | Set-Clipboard`，直接粘贴到 Secret 输入框。
+- `ANDROID_SIGNING_PROPERTIES` 使用现有 `.android-signing/signing.properties` 的完整内容。可运行 `Get-Content -Raw .android-signing/signing.properties | Set-Clipboard` 后粘贴。
+
+在 **Actions → 发布 Android 版 → Run workflow** 选 `master`，填写版本号（例如 `0.1.5`）。每段最多为 2099、999、999，工作流会按 `主版本 × 1,000,000 + 次版本 × 1,000 + 补丁版本` 生成递增的 Android 版本代码。勾选 **仅构建验证** 可先下载 Actions 产物。未配置正式签名时，试跑会用临时签名，只适合空白测试设备。取消勾选即可发布 `android-v0.1.5`，该标签与 Windows 更新分开。
+
+本机如需用原签名构建同样的版本，可以临时设置 `ORG_GRADLE_PROJECT_workshopVersionName=0.1.5` 和 `ORG_GRADLE_PROJECT_workshopVersionCode=1005`，再执行 `pnpm run package:android`。
+
+旧版手机首次手动覆盖安装含更新功能的正式 APK。随后在 **设置 → 关于 → 应用更新** 点 **检查更新 → 下载并安装**。Android 首次会要求允许丝月工坊安装应用，授权后返回再次点击。应用会校验 APK、保存待写入的数据并打开系统安装确认。覆盖安装后重新打开丝月工坊，核对版本号、已有笔记、收藏和本地音乐。
 
 ## 电脑调试与热更新
 

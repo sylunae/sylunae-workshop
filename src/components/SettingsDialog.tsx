@@ -23,6 +23,8 @@ import type { MediaToolsStatus } from '../shared/types'
 import { MediaToolsDialog } from './MediaToolsDialog'
 import { ResourceSettings } from './ResourceSettings'
 import { DesktopUpdate } from './DesktopUpdate'
+import { AndroidUpdate } from './AndroidUpdate'
+import { App as CapacitorApp } from '@capacitor/app'
 
 type SettingsSection = 'appearance' | 'focus' | 'resources' | 'connections' | 'data' | 'about'
 
@@ -303,12 +305,20 @@ function DataSettings({ counts, onExport, onImport, inputRef, onFile, onExportPa
 
 function AboutSettings() {
   const desktop = window.sylunae?.platform === 'electron'
+  const [version, setVersion] = useState(appVersion)
+  useEffect(() => {
+    if (isAndroid) void CapacitorApp.getInfo().then((info) => setVersion(info.version)).catch(() => {})
+  }, [])
   const [toolsStatus, setToolsStatus] = useState<MediaToolsStatus | null>(null)
   const [toolsDialogOpen, setToolsDialogOpen] = useState(false)
   const refreshTools = () => { if (desktop) void window.sylunae!.music.getMediaToolsStatus().then(setToolsStatus) }
   useEffect(refreshTools, [desktop])
   return <div className="about-settings">
-    <section className="settings-pane"><SettingHeading icon={desktop || isAndroid ? <HardDrive /> : <Globe2 />} title="运行环境" description={isAndroid ? 'Android 客户端' : desktop ? 'Electron 桌面版' : '浏览器轻量版'} /><dl className="environment-list"><div><dt>数据位置</dt><dd>{isAndroid ? '应用私有目录 · SQLite 数据库' : desktop ? '本机 SQLite 数据库' : '浏览器 IndexedDB'}</dd></div><div><dt>本地音乐</dt><dd>{isAndroid ? '可用 · 支持后台播放' : desktop ? '可用' : '客户端专属'}</dd></div><div><dt>云端同步</dt><dd>未启用</dd></div><div><dt>应用版本</dt><dd>{appVersion}</dd></div></dl></section>
+    <section className="settings-pane"><SettingHeading icon={desktop || isAndroid ? <HardDrive /> : <Globe2 />} title="运行环境" description={isAndroid ? 'Android 客户端' : desktop ? 'Electron 桌面版' : '浏览器轻量版'} /><dl className="environment-list"><div><dt>数据位置</dt><dd>{isAndroid ? '应用私有目录 · SQLite 数据库' : desktop ? '本机 SQLite 数据库' : '浏览器 IndexedDB'}</dd></div><div><dt>本地音乐</dt><dd>{isAndroid ? '可用 · 支持后台播放' : desktop ? '可用' : '客户端专属'}</dd></div><div><dt>云端同步</dt><dd>未启用</dd></div><div><dt>应用版本</dt><dd>{version}</dd></div></dl></section>
+    {isAndroid && <section className="settings-pane">
+      <SettingHeading icon={<Download />} title="应用更新" description="检查 Android 正式版更新。" />
+      <AndroidUpdate />
+    </section>}
     {window.sylunae?.updates && <section className="settings-pane">
       <SettingHeading icon={<Download />} title="应用更新" description="检查 Windows 桌面版更新。" />
       <DesktopUpdate />

@@ -33,7 +33,8 @@ if (mode === 'release') {
 const java = join(env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java')
 run(java, ['-classpath', join(root, 'android/gradle/wrapper/gradle-wrapper.jar'), 'org.gradle.wrapper.GradleWrapperMain', '-p', 'android', mode === 'test' ? ':app:connectedDebugAndroidTest' : mode === 'release' ? ':app:assembleRelease' : ':app:assembleDebug', '--console=plain'])
 if (mode !== 'test') {
-  const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const { version: projectVersion } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const version = env.ORG_GRADLE_PROJECT_workshopVersionName || projectVersion
   const source = join(root, `android/app/build/outputs/apk/${mode}/app-${mode}.apk`)
   const output = join(root, `release/Sylunae-Workshop-${version}-Android${mode === 'debug' ? '-debug' : ''}.apk`)
   mkdirSync(join(root, 'release'), { recursive: true }); copyFileSync(source, output)

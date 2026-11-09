@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
     @Override public void onCreate(Bundle state) {
         registerPlugin(WorkshopFilesPlugin.class);
         registerPlugin(WorkshopPlayerPlugin.class);
+        registerPlugin(WorkshopUpdatesPlugin.class);
         super.onCreate(state);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content), (view, insets) -> {
             androidx.core.graphics.Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());

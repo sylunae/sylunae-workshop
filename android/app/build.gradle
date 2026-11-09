@@ -11,8 +11,8 @@ android {
         applicationId "studio.sylunae.workshop"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "0.1.1"
+        versionCode (providers.gradleProperty('workshopVersionCode').orElse('2').get().toInteger())
+        versionName (providers.gradleProperty('workshopVersionName').orElse('0.1.1').get())
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
