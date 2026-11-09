@@ -26,6 +26,8 @@ npm run package:win
 
 网页生产文件输出到 `dist/`，Electron 构建输出到 `out/`，Windows 安装包输出到 `release/`。
 
+Windows 正式版可在 GitHub Actions 手动发版，客户端可在应用内更新。见 [Windows 发版与更新](docs/windows-release.md)。
+
 ## UI 组件
 
 项目使用 shadcn/ui + Tailwind CSS v4 作为基础 UI 层，组件源码位于 `src/components/ui`。新增标准交互时优先复用现有组件，或使用官方 CLI 添加：

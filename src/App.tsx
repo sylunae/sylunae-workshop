@@ -4,6 +4,7 @@ import { BirthdayNotifications } from './components/BirthdayNotifications'
 import { Sidebar } from './components/Sidebar'
 import { FunFeaturesDialog } from './components/FunFeaturesDialog'
 import { DeskCompanion } from './components/DeskCompanion'
+import { DesktopUpdate } from './components/DesktopUpdate'
 import { Spinner } from './components/Icons'
 import { useAppStore } from './app/AppStore'
 import type { MusicTrack, PomodoroMode, ResourceItem, ToolId, WorkspaceToolId } from './shared/types'
@@ -228,6 +229,7 @@ export default function App() {
     <Sidebar active={activeTool} taskView={taskView} collectionView={collectionView} musicSection={musicSection} musicView={musicView} collapsed={snapshot.settings.sidebarCollapsed} width={renderedSidebarWidth} mobileOpen={mobileOpen} settingsOpen={settingsOpen} funFeaturesOpen={funFeaturesOpen} nowPlaying={nowPlaying} nowPlayingAmbient={nowPlayingAmbient} onSelect={selectTool} onSelectTaskView={selectTaskView} onSelectCollectionView={selectCollectionView} onSelectMusicSection={selectMusicSection} onSelectMusicView={selectMusicView} onOpenSettings={openSettings} onOpenFunFeatures={openFunFeatures} onResize={resizeSidebar} onOpen={() => setMobileOpen(true)} onClose={() => setMobileOpen(false)} />
     {isElectron() && <div className={`app-titlebar ${pageScrolled ? 'scrolled' : ''} ${snapshot.pomodoro.running ? 'pomodoro-running' : ''}`}>
       <div className="app-titlebar-drag" />
+      <DesktopUpdate titlebar />
       {snapshot.pomodoro.running && <button type="button" className="pomodoro-titlebar" onClick={openPomodoro} aria-label={`打开番茄钟：${pomodoroModeLabels[snapshot.pomodoro.mode]}中，剩余 ${pomodoroTime}`}>
         <Clock3 size={14} strokeWidth={1.8} /><span>{pomodoroModeLabels[snapshot.pomodoro.mode]}中</span><strong>{pomodoroTime}</strong>
       </button>}

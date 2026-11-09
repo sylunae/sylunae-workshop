@@ -12,6 +12,7 @@ function Controls() {
   return <><span data-testid="name">{store.snapshot?.settings.displayName}</span>
     <button onClick={() => store.update((value) => ({ ...value, settings: { ...value.settings, displayName: 'Local edits' } }))}>Edit</button>
     <button onClick={() => store.update((value) => ({ ...value, settings: { ...value.settings, displayName: 'Background update' } }))}>Background tick</button>
+    <button onClick={() => { void store.flush().catch(() => {}) }}>Flush</button>
     <button onClick={() => { void store.replace(createDefaultSnapshot()).catch(() => {}) }}>Import</button>
   </>
 }
@@ -30,4 +31,15 @@ it('flushes local edits before import and blocks stale background writes across 
   fail(new Error('Disk full'))
   await waitFor(() => expect(screen.getByTestId('name').textContent).toBe('Local edits'))
   expect(database.save).toHaveBeenCalledTimes(1)
+})
+
+it('retries a failed background write before flushing', async () => {
+  database.save.mockRejectedValueOnce(new Error('Disk full'))
+  render(<AppStoreProvider><Controls /></AppStoreProvider>)
+  await waitFor(() => expect(screen.getByTestId('name').textContent).not.toBe(''))
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+  await waitFor(() => expect(database.save).toHaveBeenCalledTimes(1))
+  fireEvent.click(screen.getByRole('button', { name: 'Flush' }))
+  await waitFor(() => expect(database.save).toHaveBeenCalledTimes(2))
+  expect(database.save.mock.calls[1][0].settings.displayName).toBe('Local edits')
 })

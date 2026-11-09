@@ -1,0 +1,137 @@
+name: 发布 Windows 版
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '正式版本号，例如 0.1.5（不带 v）'
+        type: string
+        required: true
+      commit:
+        description: '可选：指定 master 上的完整提交 SHA，留空使用当前提交'
+        type: string
+      notes:
+        description: '可选：更新说明，留空由 GitHub 生成'
+        type: string
+      build_only:
+        description: '仅构建验证，安装包存为 Actions Artifact'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-windows
+
+jobs:
+  build:
+    name: 校验、测试与打包
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: windows-2025
+    timeout-minutes: 25
+    outputs:
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 校验版本与提交
+        id: version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+        run: |
+          if ($env:RELEASE_VERSION -cnotmatch '^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$' -or
+              ($env:RELEASE_VERSION.Split('.') | Where-Object { [int]$_ -gt 65535 })) {
+            throw '版本号必须为 x.y.z，每段为 0 至 65535。'
+          }
+          $version = [version]$env:RELEASE_VERSION
+          $previous = git tag --list 'v*' | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' }
+          if ($previous | Where-Object { [version]$_.Substring(1) -ge $version }) {
+            throw '版本号必须高于仓库已有的正式版本标签。'
+          }
+          $commit = $env:GITHUB_SHA
+          if ($env:RELEASE_COMMIT) {
+            $commit = $env:RELEASE_COMMIT
+            if ($commit -cnotmatch '^[a-f0-9]{40}$') { throw '请输入完整的提交 SHA。' }
+            git merge-base --is-ancestor $commit $env:GITHUB_SHA
+            if ($LASTEXITCODE -ne 0) { throw '指定的提交必须已合并到默认分支。' }
+            git checkout --detach $commit
+            if ($LASTEXITCODE -ne 0) { throw '无法检出指定的提交。' }
+          }
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.13.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - name: 生成安装包和更新清单
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if (!(Test-Path 'electron/main/appUpdates.ts' -PathType Leaf)) {
+            throw '所选提交早于客户端更新功能，请选择包含更新功能的提交。'
+          }
+          npm pkg set "version=$env:RELEASE_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw '无法设置构建版本。' }
+          pnpm package:win
+          if ($LASTEXITCODE -ne 0) { throw 'Windows 打包失败。' }
+          $name = "Sylunae-Workshop-$env:RELEASE_VERSION-Setup.exe"
+          foreach ($file in @($name, "$name.blockmap", 'latest.yml', 'win-unpacked/resources/app-update.yml')) {
+            if (!(Test-Path -LiteralPath "release/$file" -PathType Leaf)) { throw "缺少产物 $file" }
+          }
+          $manifest = Get-Content -LiteralPath 'release/latest.yml' -Raw
+          if ($manifest -notmatch "(?m)^version: $([regex]::Escape($env:RELEASE_VERSION))\r?$" -or
+              !$manifest.Contains($name)) { throw '更新清单中的版本或安装包名不匹配。' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ inputs.version }}
+          if-no-files-found: error
+          path: |
+            release/Sylunae-Workshop-${{ inputs.version }}-Setup.exe
+            release/Sylunae-Workshop-${{ inputs.version }}-Setup.exe.blockmap
+            release/latest.yml
+
+  publish:
+    name: 发布 GitHub Release
+    if: ${{ !inputs.build_only }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-${{ inputs.version }}
+          path: release
+      - name: 上传完整产物后发布
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+          RELEASE_NOTES: ${{ inputs.notes }}
+        shell: bash
+        run: |
+          tag="v${RELEASE_VERSION}"
+          if gh api "repos/$GH_REPO/git/ref/tags/$tag" --silent; then
+            echo "::error::标签 $tag 已存在"
+            exit 1
+          fi
+          notes=(--generate-notes)
+          if [[ -n "$RELEASE_NOTES" ]]; then
+            printf '%s\n' "$RELEASE_NOTES" > "$RUNNER_TEMP/release-notes.md"
+            notes=(--notes-file "$RUNNER_TEMP/release-notes.md")
+          fi
+          gh release create "$tag" --draft --target "$RELEASE_COMMIT" \
+            --title "丝月工坊 $tag" "${notes[@]}" \
+            "release/Sylunae-Workshop-$RELEASE_VERSION-Setup.exe" \
+            "release/Sylunae-Workshop-$RELEASE_VERSION-Setup.exe.blockmap" \
+            release/latest.yml
+          gh release edit "$tag" --draft=false --latest

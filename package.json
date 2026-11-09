@@ -19,7 +19,7 @@
     "package:android:debug": "npm run build:android && node scripts/android-build.mjs debug",
     "test:android": "node scripts/android-build.mjs test",
     "open:android": "cap open android",
-    "package:win": "npm run build:desktop && electron-builder --win nsis"
+    "package:win": "npm run build:desktop && electron-builder --win nsis --publish never"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
@@ -31,6 +31,7 @@
     "better-sqlite3": "latest",
     "canvas-confetti": "^1.9.4",
     "date-fns": "^4.4.0",
+    "electron-updater": "6.8.11",
     "music-metadata": "latest",
     "react-day-picker": "^10.0.1",
     "sharp": "^0.35.4",
@@ -110,6 +111,11 @@
       "target": "nsis",
       "icon": "build/icon.png",
       "artifactName": "Sylunae-Workshop-${version}-Setup.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "sylunae",
+      "repo": "sylunae-workshop"
     },
     "nsis": {
       "oneClick": false,

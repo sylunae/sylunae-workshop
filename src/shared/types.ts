@@ -588,7 +588,18 @@ export interface PartialBackupEnvelope {
 export interface ImageFolderSummary { path: string; count: number; bytes: number; formats: Record<string, number>; recursive: boolean; files?: string[] }
 export interface ImageFolderOutput { count: number; bytes: number; errors: string[]; files?: string[] }
 
+export type AppUpdateStatus =
+  | { phase: 'idle' | 'checking' | 'current' | 'error' }
+  | { phase: 'downloading'; version: string; percent: number }
+  | { phase: 'ready' | 'installing'; version: string }
+
 export interface SylunaeAPI {
+  updates?: {
+    getStatus: () => Promise<AppUpdateStatus>
+    check: () => Promise<void>
+    install: () => Promise<boolean>
+    onStatus: (listener: (status: AppUpdateStatus) => void) => () => void
+  }
   platform: 'electron' | 'android'
   formatConversion: import('./conversion').FormatConversionAPI
   imageProcessing: {

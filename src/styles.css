@@ -210,6 +210,10 @@ input, textarea, select { color: var(--text); }
 .app-titlebar { position: fixed; z-index: 30; top: 0; left: var(--sidebar-width); right: 0; height: var(--titlebar-height); border-radius: 12px 0 0 0; border-bottom: 1px solid transparent; background: var(--bg); transition: left .22s ease, border-color .16s ease; }
 .app-titlebar.scrolled { border-bottom-color: var(--line); }
 .app-titlebar-drag { position: absolute; inset: 0 138px 0 0; -webkit-app-region: drag; }
+.desktop-update-titlebar { position: absolute; top: 5px; left: 8px; z-index: 2; -webkit-app-region: no-drag; }
+@media (max-width: 640px) {
+  .desktop-update-titlebar > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+}
 .pomodoro-titlebar { position: absolute; z-index: 1; top: 5px; left: 50%; height: 30px; padding: 0 10px; display: flex; align-items: center; gap: 6px; transform: translateX(-50%); border: 0; border-radius: 8px; background: transparent; color: var(--muted-text); font-size: 12px; -webkit-app-region: no-drag; transition: background .16s ease, color .16s ease; }
 .pomodoro-titlebar:hover, .pomodoro-titlebar:focus-visible { background: var(--accent-soft); color: var(--text); outline: none; }
 .pomodoro-titlebar strong { color: var(--text); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }

@@ -22,6 +22,7 @@ import { usePersistentState } from '../lib/usePersistentState'
 import type { MediaToolsStatus } from '../shared/types'
 import { MediaToolsDialog } from './MediaToolsDialog'
 import { ResourceSettings } from './ResourceSettings'
+import { DesktopUpdate } from './DesktopUpdate'
 
 type SettingsSection = 'appearance' | 'focus' | 'resources' | 'connections' | 'data' | 'about'
 
@@ -308,6 +309,10 @@ function AboutSettings() {
   useEffect(refreshTools, [desktop])
   return <div className="about-settings">
     <section className="settings-pane"><SettingHeading icon={desktop || isAndroid ? <HardDrive /> : <Globe2 />} title="运行环境" description={isAndroid ? 'Android 客户端' : desktop ? 'Electron 桌面版' : '浏览器轻量版'} /><dl className="environment-list"><div><dt>数据位置</dt><dd>{isAndroid ? '应用私有目录 · SQLite 数据库' : desktop ? '本机 SQLite 数据库' : '浏览器 IndexedDB'}</dd></div><div><dt>本地音乐</dt><dd>{isAndroid ? '可用 · 支持后台播放' : desktop ? '可用' : '客户端专属'}</dd></div><div><dt>云端同步</dt><dd>未启用</dd></div><div><dt>应用版本</dt><dd>{appVersion}</dd></div></dl></section>
+    {window.sylunae?.updates && <section className="settings-pane">
+      <SettingHeading icon={<Download />} title="应用更新" description="检查 Windows 桌面版更新。" />
+      <DesktopUpdate />
+    </section>}
     {desktop && <section className="settings-pane media-tools-pane">
       <SettingHeading icon={<PackageOpen />} title="媒体工具" description="按需启用 YouTube 音频导入能力。" />
       <div className="media-tools-card"><span className={toolsStatus?.ready ? 'ready' : ''}>{toolsStatus?.ready ? <CheckCircle2 /> : <Download />}</span><div><strong>{toolsStatus?.ready ? '媒体工具已安装' : '媒体工具尚未安装'}</strong><small>{toolsStatus?.ready ? 'FFmpeg 与 yt-dlp 已准备完成' : '使用时再下载，约占用 96 MB 本地空间'}</small></div></div>

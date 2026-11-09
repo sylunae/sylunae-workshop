@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, protocol, shell } from 'electron'
+import { registerAppUpdates } from './appUpdates'
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
@@ -864,6 +865,7 @@ function createWindow(): void {
     titleBarOverlay: { color: '#00000000', symbolColor: '#6f6f6f', height: 42 },
     webPreferences: {
       preload: fileURLToPath(new URL('../preload/index.mjs', import.meta.url)),
+      additionalArguments: app.isPackaged && process.platform === 'win32' ? ['--sylunae-updates'] : [],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -1201,6 +1203,7 @@ app.whenReady().then(() => {
     return new Response(Readable.toWeb(createReadStream(filePath, { start, end })) as unknown as BodyInit, { status: 206, headers })
   })
   registerIpc()
+  registerAppUpdates()
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })

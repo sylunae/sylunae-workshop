@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { repository } from '../data/repository'
-import { changedSnapshotSections, snapshotPatchEntries } from '../data/snapshotSections'
+import { changedSnapshotSections, snapshotPatchEntries, type SnapshotSectionKey } from '../data/snapshotSections'
 import type { AppSnapshot, AppSnapshotPatch } from '../shared/types'
 import { removeExpiredTodos, todoExpiresAt } from '../todos/cleanup'
 import { flushSync } from 'react-dom'
@@ -29,6 +29,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const pendingPatch = useRef<AppSnapshotPatch>({})
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
   const queuedSaveId = useRef(0)
+  const failedSections = useRef(new Set<SnapshotSectionKey>())
   const replacing = useRef(false)
 
   useEffect(() => {
@@ -39,10 +40,19 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const persist = useCallback((patch: AppSnapshotPatch): Promise<void> => {
-    if (snapshotPatchEntries(patch).length === 0) return saveQueue.current
+    const entries = snapshotPatchEntries(patch)
+    if (entries.length === 0) return saveQueue.current
     const saveId = ++queuedSaveId.current
     setSaving(true)
-    const operation = saveQueue.current.then(() => repository.save(patch))
+    const operation = saveQueue.current.then(async () => {
+      try {
+        await repository.save(patch)
+        entries.forEach(({ key }) => failedSections.current.delete(key))
+      } catch (cause) {
+        entries.forEach(({ key }) => failedSections.current.add(key))
+        throw cause
+      }
+    })
     saveQueue.current = operation.catch(() => undefined)
     void operation
       .then(() => setError(''))
@@ -101,11 +111,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [todos, update])
 
   const flush = useCallback(async () => {
+    if (replacing.current) throw new Error('正在导入，请等待当前操作完成。')
     flushSync(() => window.dispatchEvent(new Event('sylunae:flush-editors')))
     await drainPending()
     await saveQueue.current
+    const current = latest.current
+    if (current && failedSections.current.size > 0) {
+      const retry: AppSnapshotPatch = {}
+      failedSections.current.forEach((key) => Object.assign(retry, { [key]: current[key] }))
+      await persist(retry)
+    }
     return latest.current
-  }, [drainPending])
+  }, [drainPending, persist])
 
   useEffect(() => {
     const saveBeforeSuspend = () => { if (document.visibilityState === 'hidden') void flush().catch(() => setError('保存失败，请重新打开后重试')) }
@@ -122,7 +139,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       await drainPending()
       const operation = saveQueue.current.then(() => repository.replace(value))
       saveQueue.current = operation.then(() => undefined, () => undefined)
-      const persisted = await operation; latest.current = persisted; setSnapshot(persisted)
+      const persisted = await operation
+      failedSections.current.clear()
+      latest.current = persisted
+      setSnapshot(persisted)
     }
     finally { replacing.current = false }
   }, [drainPending])

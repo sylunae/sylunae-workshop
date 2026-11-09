@@ -1,8 +1,18 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AppSnapshot, AppSnapshotPatch, ImageScanProgress, MediaToolsProgress, MusicImportProgress, ResourceDownloadProgress, SylunaeAPI } from '../../src/shared/types'
+import type { AppSnapshot, AppSnapshotPatch, AppUpdateStatus, ImageScanProgress, MediaToolsProgress, MusicImportProgress, ResourceDownloadProgress, SylunaeAPI } from '../../src/shared/types'
 
 const api: SylunaeAPI = {
   platform: 'electron',
+  updates: process.argv.includes('--sylunae-updates') ? {
+    getStatus: () => ipcRenderer.invoke('updates:get-status'),
+    check: () => ipcRenderer.invoke('updates:check'),
+    install: () => ipcRenderer.invoke('updates:install'),
+    onStatus: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, status: AppUpdateStatus) => listener(status)
+      ipcRenderer.on('updates:status', handler)
+      return () => ipcRenderer.removeListener('updates:status', handler)
+    },
+  } : undefined,
   formatConversion: {
     capabilities: () => ipcRenderer.invoke('conversion:capabilities'),
     inspect: (file) => ipcRenderer.invoke('conversion:inspect', webUtils.getPathForFile(file)),
