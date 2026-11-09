@@ -328,13 +328,21 @@ const countdownRepeatLabels: Record<CountdownRepeat, string> = { none: '不重�
 const countdownModeLabels: Record<CountdownMode, string> = { auto: '自动判断', countdown: '倒数', countup: '正数' }
 const countdownAccentLabels: Record<CountdownAccent, string> = { neutral: '月白', rose: '蔷薇', amber: '暖阳', sage: '青叶', sky: '晴空' }
 
+interface CountdownEntry {
+  key: string
+  event: CountdownEvent
+  result: CountdownResult
+  fromBirthdays: boolean
+}
+
 function CountdownPanel() {
   const { snapshot, update } = useAppStore()
   const countdowns = snapshot?.countdowns ?? []
+  const birthdayPeople = snapshot?.birthdays.people
   const [now, setNow] = useState(() => new Date())
   const [editing, setEditing] = useState<CountdownEvent | null | undefined>(undefined)
   const [deleting, setDeleting] = useState<CountdownEvent | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [coverUrls, setCoverUrls] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -352,7 +360,28 @@ function CountdownPanel() {
     return () => { active = false }
   }, [usedCoverPaths])
 
-  const entries = useMemo(() => countdowns.map((event) => ({ event, result: countdownResult(event, now) })).filter((entry): entry is { event: CountdownEvent; result: CountdownResult } => Boolean(entry.result)), [countdowns, now])
+  const entries = useMemo(() => {
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+    const lastDay = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate()
+    nextMonth.setDate(Math.min(now.getDate(), lastDay))
+
+    const entries: CountdownEntry[] = []
+    for (const event of countdowns) {
+      const result = countdownResult(event, now)
+      if (result) entries.push({ key: `countdown:${event.id}`, event, result, fromBirthdays: false })
+    }
+    for (const person of birthdayPeople ?? []) {
+      const event: CountdownEvent = {
+        id: person.id, title: `${person.name}的生日`, targetDate: person.date, category: 'birthday',
+        note: '来自生日通知', repeat: 'yearly', mode: 'countdown', accent: 'rose',
+        targetTime: '', precise: false, includeStartDay: false, pinned: false,
+        coverImagePath: '', createdAt: '', updatedAt: '',
+      }
+      const result = countdownResult(event, now)
+      if (result && result.occurrence <= nextMonth) entries.push({ key: `birthday:${person.id}`, event, result, fromBirthdays: true })
+    }
+    return entries
+  }, [countdowns, birthdayPeople, now])
   const upcoming = entries
     .filter(({ result }) => result.state !== 'past')
     .sort((a, b) => Number(b.event.pinned) - Number(a.event.pinned) || a.result.occurrence.getTime() - b.result.occurrence.getTime())
@@ -361,8 +390,8 @@ function CountdownPanel() {
     .sort((a, b) => Number(b.event.pinned) - Number(a.event.pinned) || b.result.occurrence.getTime() - a.result.occurrence.getTime())
   const featured = [...upcoming].sort((a, b) => a.result.occurrence.getTime() - b.result.occurrence.getTime())[0]
     ?? [...past].sort((a, b) => b.result.occurrence.getTime() - a.result.occurrence.getTime())[0]
-  const selected = countdowns.find((event) => event.id === selectedId) ?? null
-  const selectedResult = selected ? countdownResult(selected, now) : null
+  const selectedEntry = entries.find((entry) => entry.key === selectedKey)
+  const selected = selectedEntry?.event ?? null
 
   const save = (draft: Omit<CountdownEvent, 'id' | 'createdAt' | 'updatedAt'>) => {
     const timestamp = nowIso()
@@ -385,14 +414,14 @@ function CountdownPanel() {
   }
 
   return <div className="task-panel countdown-panel">
-    <div className="panel-heading"><div><h2>倒数日</h2><p>{countdowns.length ? `${countdowns.length} 个日子，未来与过去一目了然` : '记下一个名称和日期，就完成了'}</p></div><Button className="button primary" onClick={() => setEditing(null)}><Plus size={16} />添加倒数日</Button></div>
-    {featured && <CountdownFeatureHero event={featured.event} result={featured.result} coverUrl={coverUrlFor(featured.event)} onOpen={() => setSelectedId(featured.event.id)} />}
+    <div className="panel-heading"><div><h2>倒数日</h2><p>{entries.length ? `${entries.length} 个日子，未来与过去一目了然` : '记下一个名称和日期，就完成了'}</p></div><Button className="button primary" onClick={() => setEditing(null)}><Plus size={16} />添加倒数日</Button></div>
+    {featured && <CountdownFeatureHero event={featured.event} result={featured.result} coverUrl={coverUrlFor(featured.event)} onOpen={() => setSelectedKey(featured.key)} />}
     {entries.length ? <div className="countdown-list">
-      {upcoming.length > 0 && <CountdownSection title="即将到来" count={upcoming.length} entries={upcoming} onOpen={setSelectedId} onEdit={setEditing} onDelete={setDeleting} onPin={(event) => patch(event.id, { pinned: !event.pinned })} />}
-      {past.length > 0 && <CountdownSection title="已经过去" count={past.length} entries={past} past onOpen={setSelectedId} onEdit={setEditing} onDelete={setDeleting} onPin={(event) => patch(event.id, { pinned: !event.pinned })} />}
+      {upcoming.length > 0 && <CountdownSection title="即将到来" count={upcoming.length} entries={upcoming} onOpen={setSelectedKey} onEdit={setEditing} onDelete={setDeleting} onPin={(event) => patch(event.id, { pinned: !event.pinned })} />}
+      {past.length > 0 && <CountdownSection title="已经过去" count={past.length} entries={past} past onOpen={setSelectedKey} onEdit={setEditing} onDelete={setDeleting} onPin={(event) => patch(event.id, { pinned: !event.pinned })} />}
     </div> : <section className="countdown-empty-hero"><span><CalendarClock /></span><h3>还没有倒数日</h3><p>只需要名称和日期，就能开始记录。</p><Button variant="outline" onClick={() => setEditing(null)}><Plus size={15} />添加第一个倒数日</Button></section>}
     <CountdownEditor open={editing !== undefined} event={editing ?? null} onClose={() => setEditing(undefined)} onSave={save} />
-    <CountdownDetail event={selected} result={selectedResult} coverUrl={selected ? coverUrlFor(selected) : ''} onClose={() => setSelectedId(null)} onEdit={() => { if (selected) { setEditing(selected); setSelectedId(null) } }} onPin={() => { if (selected) patch(selected.id, { pinned: !selected.pinned }) }} onDelete={() => { if (selected) { setDeleting(selected); setSelectedId(null) } }} />
+    <CountdownDetail event={selected} result={selectedEntry?.result ?? null} readOnly={selectedEntry?.fromBirthdays} coverUrl={selected ? coverUrlFor(selected) : ''} onClose={() => setSelectedKey(null)} onEdit={() => { if (selected) { setEditing(selected); setSelectedKey(null) } }} onPin={() => { if (selected) patch(selected.id, { pinned: !selected.pinned }) }} onDelete={() => { if (selected) { setDeleting(selected); setSelectedKey(null) } }} />
     <ConfirmDialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open) setDeleting(null) }} title="删除这个倒数日？" description={<>“<span className="user-content">{deleting?.title}</span>”删除后无法恢复。</>} confirmLabel="删除" destructive icon={<Trash2 />} onConfirm={remove} />
   </div>
   }
@@ -407,18 +436,18 @@ function CountdownFeatureHero({ event, result, coverUrl, onOpen }: { event: Coun
   </article>
 }
 
-function CountdownSection({ title, count, entries, past = false, onOpen, onEdit, onDelete, onPin }: { title: string; count: number; entries: Array<{ event: CountdownEvent; result: CountdownResult }>; past?: boolean; onOpen: (id: string) => void; onEdit: (event: CountdownEvent) => void; onDelete: (event: CountdownEvent) => void; onPin: (event: CountdownEvent) => void }) {
-  return <section className={`countdown-section ${past ? 'past' : 'future'}`}><header><h3>{title}</h3><span>{count}</span></header><div>{entries.map(({ event, result }) => <CountdownRow key={event.id} event={event} result={result} onOpen={() => onOpen(event.id)} onEdit={() => onEdit(event)} onDelete={() => onDelete(event)} onPin={() => onPin(event)} />)}</div></section>
+function CountdownSection({ title, count, entries, past = false, onOpen, onEdit, onDelete, onPin }: { title: string; count: number; entries: CountdownEntry[]; past?: boolean; onOpen: (key: string) => void; onEdit: (event: CountdownEvent) => void; onDelete: (event: CountdownEvent) => void; onPin: (event: CountdownEvent) => void }) {
+  return <section className={`countdown-section ${past ? 'past' : 'future'}`}><header><h3>{title}</h3><span>{count}</span></header><div>{entries.map(({ key, event, result, fromBirthdays }) => <CountdownRow key={key} event={event} result={result} readOnly={fromBirthdays} onOpen={() => onOpen(key)} onEdit={() => onEdit(event)} onDelete={() => onDelete(event)} onPin={() => onPin(event)} />)}</div></section>
 }
 
-function CountdownRow({ event, result, onOpen, onEdit, onDelete, onPin }: { event: CountdownEvent; result: CountdownResult; onOpen: () => void; onEdit: () => void; onDelete: () => void; onPin: () => void }) {
+function CountdownRow({ event, result, readOnly, onOpen, onEdit, onDelete, onPin }: { event: CountdownEvent; result: CountdownResult; readOnly: boolean; onOpen: () => void; onEdit: () => void; onDelete: () => void; onPin: () => void }) {
   const meta = countdownCategoryMeta[event.category]
   const Icon = meta.icon
   const phrase = result.state === 'today' && result.displayDays === 0 ? '就是今天' : result.state === 'past' ? `已经${result.displayDays}天` : `还有${result.displayDays}天`
   return <article className={`countdown-row accent-${event.accent} ${result.state}`} role="button" tabIndex={0} onClick={onOpen} onKeyDown={(keyEvent) => { if (keyEvent.key === 'Enter' || keyEvent.key === ' ') onOpen() }}>
     <span className="countdown-row-icon"><Icon size={17} /></span>
     <div className="countdown-row-copy"><p>{event.pinned && <Pin className="countdown-row-pin" size={12} fill="currentColor" />}<strong className="user-content">{event.title}</strong><span>{phrase}</span></p><small>{formatCountdownDate(event, result.occurrence)}{event.note ? ` · ${event.note}` : ''}</small></div>
-    <div className="countdown-row-actions"><button className={event.pinned ? 'active' : ''} onClick={(clickEvent) => { clickEvent.stopPropagation(); onPin() }} aria-label={event.pinned ? '取消置顶' : '置顶'} title={event.pinned ? '取消置顶' : '置顶'}><Pin size={14} fill={event.pinned ? 'currentColor' : 'none'} /></button><button onClick={(clickEvent) => { clickEvent.stopPropagation(); onEdit() }} aria-label="编辑" title="编辑"><Pencil size={14} /></button><button className="danger" onClick={(clickEvent) => { clickEvent.stopPropagation(); onDelete() }} aria-label="删除" title="删除"><Trash2 size={14} /></button></div>
+    {!readOnly && <div className="countdown-row-actions"><button className={event.pinned ? 'active' : ''} onClick={(clickEvent) => { clickEvent.stopPropagation(); onPin() }} aria-label={event.pinned ? '取消置顶' : '置顶'} title={event.pinned ? '取消置顶' : '置顶'}><Pin size={14} fill={event.pinned ? 'currentColor' : 'none'} /></button><button onClick={(clickEvent) => { clickEvent.stopPropagation(); onEdit() }} aria-label="编辑" title="编辑"><Pencil size={14} /></button><button className="danger" onClick={(clickEvent) => { clickEvent.stopPropagation(); onDelete() }} aria-label="删除" title="删除"><Trash2 size={14} /></button></div>}
   </article>
 }
 
@@ -492,11 +521,11 @@ function CountdownEditor({ open, event, onClose, onSave }: { open: boolean; even
   </div><DialogFooter><Button variant="outline" onClick={onClose}>取消</Button><Button onClick={submit}>{event ? '保存' : '添加'}</Button></DialogFooter></DialogContent></Dialog>
 }
 
-function CountdownDetail({ event, result, coverUrl, onClose, onEdit, onPin, onDelete }: { event: CountdownEvent | null; result: CountdownResult | null; coverUrl: string; onClose: () => void; onEdit: () => void; onPin: () => void; onDelete: () => void }) {
+function CountdownDetail({ event, result, readOnly, coverUrl, onClose, onEdit, onPin, onDelete }: { event: CountdownEvent | null; result: CountdownResult | null; readOnly?: boolean; coverUrl: string; onClose: () => void; onEdit: () => void; onPin: () => void; onDelete: () => void }) {
   if (!event || !result) return <Sheet open={false}><SheetContent /></Sheet>
   const meta = countdownCategoryMeta[event.category]
   const Icon = meta.icon
-  return <Sheet open onOpenChange={(open) => { if (!open) onClose() }}><SheetContent className="countdown-detail" showCloseButton><SheetHeader><SheetTitle className="user-content">{event.title}</SheetTitle><SheetDescription>{formatCountdownDate(event, result.occurrence)}</SheetDescription></SheetHeader><div className={`countdown-detail-hero accent-${event.accent}`} style={countdownCoverStyle(coverUrl)}><span>{result.wording}</span>{event.precise ? <PreciseCountdown result={result} /> : <strong>{result.displayDays}</strong>}<small>{event.precise ? '精确计时' : result.state === 'today' && result.displayDays === 0 ? '就是今天' : '天'}</small></div><div className="countdown-detail-meta"><span><Icon size={15} />{meta.label}</span><span><Repeat2 size={15} />{countdownRepeatLabels[event.repeat]}</span><span><CalendarClock size={15} />{countdownModeLabels[event.mode]}</span>{event.includeStartDay && <span><Check size={15} />包含起始日</span>}{event.coverImagePath && <span><ImageIcon size={15} />本地图片背景</span>}</div>{event.note && <p className="countdown-detail-note user-content">{event.note}</p>}<SheetFooter className="countdown-detail-actions"><Button variant="ghost" className="danger" onClick={onDelete}><Trash2 size={15} />删除</Button><Button variant="outline" onClick={onPin}><Pin size={15} fill={event.pinned ? 'currentColor' : 'none'} />{event.pinned ? '取消置顶' : '置顶'}</Button><Button onClick={onEdit}><Pencil size={15} />编辑</Button></SheetFooter></SheetContent></Sheet>
+  return <Sheet open onOpenChange={(open) => { if (!open) onClose() }}><SheetContent className="countdown-detail" showCloseButton><SheetHeader><SheetTitle className="user-content">{event.title}</SheetTitle><SheetDescription>{formatCountdownDate(event, result.occurrence)}</SheetDescription></SheetHeader><div className={`countdown-detail-hero accent-${event.accent}`} style={countdownCoverStyle(coverUrl)}><span>{result.wording}</span>{event.precise ? <PreciseCountdown result={result} /> : <strong>{result.displayDays}</strong>}<small>{event.precise ? '精确计时' : result.state === 'today' && result.displayDays === 0 ? '就是今天' : '天'}</small></div><div className="countdown-detail-meta"><span><Icon size={15} />{meta.label}</span><span><Repeat2 size={15} />{countdownRepeatLabels[event.repeat]}</span><span><CalendarClock size={15} />{countdownModeLabels[event.mode]}</span>{event.includeStartDay && <span><Check size={15} />包含起始日</span>}{event.coverImagePath && <span><ImageIcon size={15} />本地图片背景</span>}</div>{event.note && <p className="countdown-detail-note user-content">{event.note}</p>}{!readOnly && <SheetFooter className="countdown-detail-actions"><Button variant="ghost" className="danger" onClick={onDelete}><Trash2 size={15} />删除</Button><Button variant="outline" onClick={onPin}><Pin size={15} fill={event.pinned ? 'currentColor' : 'none'} />{event.pinned ? '取消置顶' : '置顶'}</Button><Button onClick={onEdit}><Pencil size={15} />编辑</Button></SheetFooter>}</SheetContent></Sheet>
 }
 
 function PreciseCountdown({ result, compact = false }: { result: CountdownResult; compact?: boolean }) {
