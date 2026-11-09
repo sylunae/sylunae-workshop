@@ -20,3 +20,5 @@
 首次从 [GitHub Releases](https://github.com/sylunae/sylunae-workshop/releases) 下载带有更新功能的 Windows 安装包，直接覆盖安装。之后客户端启动和运行期间会检查更新，也可在 **设置 → 关于 → 应用更新** 手动检查。下载完成后点击标题栏或设置页的 **重启并更新**。应用会保存待写入的数据，覆盖安装并重新打开。
 
 验证时，在旧版创建一条笔记、保留一项收藏和一条本地媒体记录。升级后检查版本号、笔记内容和收藏，并播放原有媒体。安装升级沿用现有应用 ID、安装方式和用户数据目录。
+
+如果旧版是从做过 Android 构建的工作区打包的，覆盖安装时可能报 `Failed to uninstall old application files … : 2`。旧包里残留的 Android 编译缓存可能让 NSIS 的临时回滚路径过长。退出安装器后，将旧版程序目录 `resources/app.asar.unpacked/node_modules/@capacitor/` 下存在的 `android/capacitor/build`、`app/android/build` 和 `local-notifications/android/build` 移到程序目录之外，再运行安装包。应用数据位于 `%APPDATA%/sylunae-workshop`。
