@@ -1,4 +1,5 @@
 import type { AppSnapshot, AppSnapshotPatch } from '../shared/types'
+import type { DriveWhiteNoise } from '../shared/driveBackup'
 import { snapshotSectionKeys } from '../data/snapshotSections'
 import { decodeBytes, encodeBytes } from './binary'
 
@@ -26,7 +27,7 @@ export async function readAndroidSnapshot(run: NativeCall): Promise<Partial<AppS
 }
 
 /** Stage small bridge messages, then atomically publish all rows. Never clear live data first. */
-export async function writeAndroidSnapshot(run: NativeCall, value: AppSnapshot | AppSnapshotPatch, replace: boolean): Promise<void> {
+export async function writeAndroidSnapshot(run: NativeCall, value: AppSnapshot | AppSnapshotPatch, replace: boolean, whiteNoise?: DriveWhiteNoise): Promise<void> {
   const token = crypto.randomUUID()
   const stage = async (scope: string, id: string, item: unknown) => {
     const bytes = new TextEncoder().encode(JSON.stringify(item))
@@ -38,7 +39,12 @@ export async function writeAndroidSnapshot(run: NativeCall, value: AppSnapshot |
     for (const key of snapshotSectionKeys) if (key !== 'notes' && Object.prototype.hasOwnProperty.call(value, key) && value[key] !== undefined) await stage('records', key, value[key])
     const changes = 'noteChanges' in value ? value.noteChanges : undefined
     for (const note of value.notes ?? changes?.put ?? []) await stage('notes', note.id, note)
-    await run('storage:commit', { token, replace, deletedNotes: changes?.delete ?? [] })
+    if (whiteNoise) await stage('records', 'drive:whiteNoise', whiteNoise.map((item) => ({
+      ...item, kind: 'white-noise', description: '从 Google Drive 恢复的白噪音', tags: [],
+      coverPath: '', audioPath: '', sha256: '', builtin: false, origin: 'custom', state: 'installed', installedSize: item.size,
+      attribution: { creator: '用户导入', sourceTitle: '', sourceUrl: '', license: '本地文件', licenseUrl: '' },
+    })))
+    await run('storage:commit', { token, replace, deletedNotes: changes?.delete ?? [], ...(whiteNoise ? { driveRestore: true } : {}) })
   } catch (error) {
     await run('storage:abort', { token }).catch(() => undefined)
     throw error

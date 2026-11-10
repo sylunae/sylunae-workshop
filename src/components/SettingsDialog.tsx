@@ -24,6 +24,7 @@ import { MediaToolsDialog } from './MediaToolsDialog'
 import { ResourceSettings } from './ResourceSettings'
 import { DesktopUpdate } from './DesktopUpdate'
 import { AndroidUpdate } from './AndroidUpdate'
+import { GoogleDriveBackupSettings } from './GoogleDriveBackupSettings'
 import { App as CapacitorApp } from '@capacitor/app'
 
 type SettingsSection = 'appearance' | 'focus' | 'resources' | 'connections' | 'data' | 'about'
@@ -181,6 +182,7 @@ function SettingsPanel() {
         {activeSection === 'connections' && <ConnectionSettings username={username} onUsernameChange={setUsername} onSave={saveUsername} />}
         {activeSection === 'data' && <DataSettings counts={{ notes: snapshot.notes.length, goals: snapshot.goals.length, tracks: snapshot.tracks.length }} onExport={() => void exportBackup()} onImport={() => void importBackup()} inputRef={importInput} onFile={(file) => void file.text().then(applyImport)} onExportPartial={(section) => void exportPartialBackup(section)} onImportPartial={() => void importPartialBackup()} partialInputRef={partialImportInput} onPartialFile={(file) => void file.text().then(applyPartialImport)} />}
         {activeSection === 'about' && <AboutSettings />}
+        {activeSection === 'data' && window.sylunae?.driveBackup && <GoogleDriveBackupSettings api={window.sylunae.driveBackup} />}
       </div>
     </main>
 

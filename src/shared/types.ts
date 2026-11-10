@@ -594,6 +594,7 @@ export type AppUpdateStatus =
   | { phase: 'ready' | 'installing'; version: string }
 
 export interface SylunaeAPI {
+  driveBackup?: import('./driveBackup').DriveBackupAPI
   updates?: {
     getStatus: () => Promise<AppUpdateStatus>
     check: () => Promise<void>
@@ -618,7 +619,7 @@ export interface SylunaeAPI {
     getNoteAsset: (id: string) => Promise<{ bytes: Uint8Array; mime: string } | null>
     load: () => Promise<AppSnapshot>
     save: (patch: AppSnapshotPatch) => Promise<void>
-    replace: (snapshot: AppSnapshot) => Promise<void>
+    replace: (snapshot: AppSnapshot, whiteNoise?: import('./driveBackup').DriveWhiteNoise) => Promise<void>
   }
   music: {
     pick: () => Promise<MusicTrack[]>

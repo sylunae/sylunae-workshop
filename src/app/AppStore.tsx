@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { repository } from '../data/repository'
 import { changedSnapshotSections, snapshotPatchEntries, type SnapshotSectionKey } from '../data/snapshotSections'
 import type { AppSnapshot, AppSnapshotPatch } from '../shared/types'
+import type { DriveWhiteNoise } from '../shared/driveBackup'
 import { removeExpiredTodos, todoExpiresAt } from '../todos/cleanup'
 import { flushSync } from 'react-dom'
 import { App as CapacitorApp } from '@capacitor/app'
@@ -13,7 +14,8 @@ interface AppStoreValue {
   saving: boolean
   error: string
   update: (recipe: (current: AppSnapshot) => AppSnapshot) => void
-  replace: (snapshot: AppSnapshot) => Promise<void>
+  replace: (snapshot: AppSnapshot, whiteNoise?: DriveWhiteNoise) => Promise<void>
+  rollbackDrive: () => Promise<void>
   flush: () => Promise<AppSnapshot | null>
 }
 
@@ -131,13 +133,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     return () => { document.removeEventListener('visibilitychange', saveBeforeSuspend); void mobile?.then((handle) => handle.remove()) }
   }, [flush])
 
-  const replace = useCallback(async (value: AppSnapshot) => {
+  const replaceWith = useCallback(async (replaceStored: () => Promise<AppSnapshot>, preservePrevious: boolean) => {
     if (replacing.current) throw new Error('正在导入，请等待当前操作完成。')
     flushSync(() => window.dispatchEvent(new Event('sylunae:flush-editors')))
     replacing.current = true
     try {
       await drainPending()
-      const operation = saveQueue.current.then(() => repository.replace(value))
+      if (preservePrevious && latest.current && failedSections.current.size) {
+        const retry: AppSnapshotPatch = {}
+        for (const key of failedSections.current) Object.assign(retry, { [key]: latest.current[key] })
+        await persist(retry)
+      }
+      const operation = saveQueue.current.then(replaceStored)
       saveQueue.current = operation.then(() => undefined, () => undefined)
       const persisted = await operation
       failedSections.current.clear()
@@ -145,14 +152,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setSnapshot(persisted)
     }
     finally { replacing.current = false }
-  }, [drainPending])
+  }, [drainPending, persist])
+
+  const replace = useCallback((value: AppSnapshot, whiteNoise?: DriveWhiteNoise) =>
+    replaceWith(() => repository.replace(value, whiteNoise), whiteNoise !== undefined), [replaceWith])
+
+  const rollbackDrive = useCallback(() => replaceWith(async () => {
+    const drive = window.sylunae?.driveBackup
+    if (drive?.mode !== 'restore') throw new Error('当前设备没有云端恢复记录。')
+    await drive.rollback()
+    return repository.load()
+  }, true), [replaceWith])
 
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current)
     if (snapshotPatchEntries(pendingPatch.current).length > 0) void repository.save(pendingPatch.current)
   }, [])
 
-  const value = useMemo(() => ({ snapshot, loading, saving, error, update, replace, flush }), [snapshot, loading, saving, error, update, replace, flush])
+  const value = useMemo(() => ({ snapshot, loading, saving, error, update, replace, rollbackDrive, flush }), [snapshot, loading, saving, error, update, replace, rollbackDrive, flush])
   return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>
 }
 

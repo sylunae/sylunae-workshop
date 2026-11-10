@@ -2133,6 +2133,9 @@ input[type='range'] { height: 3px; accent-color: var(--brand); }
 .image-source-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .prompt-error { margin: -6px 0 0; color: var(--danger); font-size: 11px; }
 .backup-preview { display: block; margin-bottom: 10px; white-space: pre-line; color: var(--text); }
+.settings-pane.google-drive-settings { min-height: 0; margin-top: 16px; }
+.google-drive-settings .settings-actions { flex-wrap: wrap; }
+.google-drive-missing { max-height: 180px; overflow: auto; overflow-wrap: anywhere; padding-inline-start: 24px; list-style: disc; }
 
 @media (max-width: 1080px) {
   .goal-dashboard { grid-template-columns: 1fr; }

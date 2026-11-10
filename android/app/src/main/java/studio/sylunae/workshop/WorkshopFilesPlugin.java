@@ -101,8 +101,10 @@ public class WorkshopFilesPlugin extends Plugin {
                         result.put("data",bytes==null?JSONObject.NULL:Base64.encodeToString(bytes,Base64.NO_WRAP));break;
                     }
                     case "storage:stage": ChunkedRecords.stage(database,call.getString("token"),call.getString("scope"),call.getString("id"),call.getInt("part",0),Base64.decode(call.getString("data"),Base64.DEFAULT));break;
-                    case "storage:commit": ChunkedRecords.commit(database,call.getString("token"),call.getBoolean("replace",false),call.getArray("deletedNotes"));break;
+                    case "storage:commit": ChunkedRecords.commit(database,call.getString("token"),call.getBoolean("replace",false),call.getArray("deletedNotes"),call.getBoolean("driveRestore",false));break;
                     case "storage:abort": database.delete("import_chunks","token=?",new String[]{call.getString("token")});break;
+                    case "storage:hasDriveRollback": result.put("available",ChunkedRecords.hasDriveRollback(database));break;
+                    case "storage:rollbackDrive": ChunkedRecords.rollbackDrive(database);break;
                     case "storage:load": call.resolve(loadSnapshot()); return;
                     case "storage:save": saveSnapshot(call.getObject("patch"), false); break;
                     case "storage:replace": saveSnapshot(call.getObject("snapshot"), true); break;

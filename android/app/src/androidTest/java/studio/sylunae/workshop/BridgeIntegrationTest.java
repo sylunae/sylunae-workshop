@@ -40,12 +40,20 @@ public class BridgeIntegrationTest {
             JSONObject value = await(activity, transaction).getJSONObject("value");
             assertTrue(value.getBoolean("rejected")); assertEquals(0, value.getJSONArray("todos").length());
             assertEquals("[1,2,3,4]", value.getJSONArray("asset").toString()); assertEquals("image/png", value.getString("mime"));
+            assertTrue(await(activity, "window.Capacitor.Plugins.WorkshopDrive.status()").getJSONObject("value").getBoolean("configured"));
             File file = WorkshopFilesPlugin.privateFile(InstrumentationRegistry.getInstrumentation().getTargetContext(), "music/test/bridge.txt"); file.getParentFile().mkdirs();
             WorkshopFilesPlugin.atomicWrite(file, "private-file-roundtrip".getBytes(StandardCharsets.UTF_8));
             try {
                 String read = "(async()=>{const url=await window.sylunae.music.getAudioUrl('music/test/bridge.txt');const response=await fetch(url);if(!response.ok)throw new Error('HTTP '+response.status);return response.text()})()";
                 assertEquals("private-file-roundtrip", await(activity, read).getString("value"));
             } finally { file.delete(); }
+            File cloudObject = WorkshopFilesPlugin.privateFile(InstrumentationRegistry.getInstrumentation().getTargetContext(), "drive-objects/bridge-test");
+            cloudObject.getParentFile().mkdirs();
+            WorkshopFilesPlugin.atomicWrite(cloudObject, "{\"test\":\"云端数据\"}".getBytes(StandardCharsets.UTF_8));
+            try {
+                String readCloud = "(async()=>{const url=await window.sylunae.music.getAudioUrl('drive-objects/bridge-test');return (await (await fetch(url)).json()).test})()";
+                assertEquals("云端数据", await(activity, readCloud).getString("value"));
+            } finally { cloudObject.delete(); }
             File audio = WorkshopFilesPlugin.privateFile(InstrumentationRegistry.getInstrumentation().getTargetContext(), "music/test/controls.opus");
             try (java.io.InputStream input = InstrumentationRegistry.getInstrumentation().getTargetContext().getAssets().open("public/resources/white-noise/audio/window-rain.opus"); java.io.OutputStream output = new java.io.FileOutputStream(audio)) { WorkshopFilesPlugin.copy(input, output); }
             try {

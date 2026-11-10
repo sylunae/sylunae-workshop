@@ -13,6 +13,13 @@ const defaultWeatherLocation = { name: '吉隆坡', country: '马来西亚', adm
 const weatherSnapshotSchema = z.object({ location: weatherLocationSchema, temperature: z.number(), apparent: z.number(), code: z.number(), daily: z.array(z.object({ minimum: z.number(), maximum: z.number(), code: z.number() })), fetchedAt: timestamp })
 const homeWallpaperSchema = z.object({ id: z.string(), image: z.string(), title: z.string(), description: z.string() })
 const homeQuickActionsSchema = z.array(z.enum(homeQuickActionIds)).max(maxHomeQuickActions).transform((ids) => normalizeHomeQuickActions(ids))
+const deskCompanionSchema = z.object({
+  enabled: z.boolean(), scale: z.number(), dialogueMode: z.enum(['sequential', 'random']), activeCharacterId: z.string(),
+  characters: z.array(z.object({
+    id: z.string(), name: z.string(), image: z.string(), dialogues: z.array(z.string()),
+    pressSound: z.string(), pressSoundName: z.string(), releaseSound: z.string(), releaseSoundName: z.string(),
+  })),
+})
 const settingsSchema = z.object({
   theme: z.enum(['system', 'light', 'dark']),
   themePalettes: z.object({
@@ -31,6 +38,7 @@ const settingsSchema = z.object({
   homeQuickActions: homeQuickActionsSchema.optional().default(defaultHomeQuickActions),
   weatherLocation: weatherLocationSchema.optional().default(defaultWeatherLocation),
   weatherCache: weatherSnapshotSchema.nullable().optional().default(null),
+  deskCompanion: deskCompanionSchema.optional().catch(undefined),
   recentTools: z.array(z.enum(['tasks', 'notes', 'music', 'collection', 'tools'])).optional().default([]),
   toolUsage: z.partialRecord(z.enum(['tasks', 'notes', 'music', 'collection', 'tools']), z.string()).optional().default({}),
   updatedAt: timestamp,
@@ -169,7 +177,11 @@ export function partialBackupSummary(backup: PartialBackupEnvelope): string {
 }
 
 export function parseBackup(contents: string): BackupEnvelope {
-  const backup = envelopeSchema.parse(JSON.parse(contents))
+  return validateBackup(JSON.parse(contents))
+}
+
+export function validateBackup(input: unknown): BackupEnvelope {
+  const backup = envelopeSchema.parse(input)
   const imageLibrary = normalizeImageLibrary(backup.snapshot.imageLibrary)
   return {
     ...backup,

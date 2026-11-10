@@ -15,6 +15,8 @@ final class ChunkedRecords {
     static void initialize(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS record_chunks (scope TEXT,id TEXT,part INTEGER,payload BLOB NOT NULL,PRIMARY KEY(scope,id,part))");
         db.execSQL("CREATE TABLE IF NOT EXISTS import_chunks (token TEXT,scope TEXT,id TEXT,part INTEGER,payload BLOB NOT NULL,created INTEGER,PRIMARY KEY(token,scope,id,part))");
+        db.execSQL("CREATE TABLE IF NOT EXISTS drive_rollback_rows (scope TEXT,id TEXT,value TEXT NOT NULL,PRIMARY KEY(scope,id))");
+        db.execSQL("CREATE TABLE IF NOT EXISTS drive_rollback_chunks (scope TEXT,id TEXT,part INTEGER,payload BLOB NOT NULL,PRIMARY KEY(scope,id,part))");
         db.delete("import_chunks", "created<?", new String[]{Long.toString(System.currentTimeMillis()-86400000)});
     }
     static void validateScope(String scope) { if (!scope.equals("records") && !scope.equals("notes")) throw new IllegalArgumentException("无效的数据域"); }
@@ -62,6 +64,9 @@ final class ChunkedRecords {
         db.insertWithOnConflict("import_chunks",null,row,SQLiteDatabase.CONFLICT_REPLACE);
     }
     static void commit(SQLiteDatabase db,String token,boolean replace,JSONArray deletedNotes) throws Exception {
+        commit(db, token, replace, deletedNotes, false);
+    }
+    static void commit(SQLiteDatabase db,String token,boolean replace,JSONArray deletedNotes,boolean driveRestore) throws Exception {
         db.beginTransaction();
         try {
             ArrayList<String[]> keys=new ArrayList<>();
@@ -72,14 +77,73 @@ final class ChunkedRecords {
                 }
             }
             if(replace && keys.stream().noneMatch(key->key[0].equals("records")&&key[1].equals("settings")))throw new IOException("备份缺少设置数据");
+            if (driveRestore) {
+                if (!replace || keys.stream().noneMatch(key -> key[0].equals("records") && key[1].equals("drive:whiteNoise"))) {
+                    throw new IOException("云端恢复数据不完整。");
+                }
+                keepDriveRollback(db);
+            } else if (keys.stream().anyMatch(key -> key[1].equals("drive:whiteNoise"))) {
+                throw new IOException("无效的云端数据导入请求。");
+            }
             if(replace){ clear(db,"records");clear(db,"notes"); }
             for(String[] key:keys) {
                 delete(db,key[0],key[1]);
                 ContentValues row=new ContentValues();row.put("id",key[1]);row.put("value",MARKER);db.insertOrThrow(key[0],null,row);
             }
             db.execSQL("INSERT INTO record_chunks(scope,id,part,payload) SELECT scope,id,part,payload FROM import_chunks WHERE token=?",new Object[]{token});
+            if (driveRestore) restoreWhiteNoise(db);
             if(deletedNotes!=null)for(int i=0;i<deletedNotes.length();i++)delete(db,"notes",deletedNotes.getString(i));
             db.delete("import_chunks","token=?",new String[]{token}); db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
+    }
+
+    private static void keepDriveRollback(SQLiteDatabase db) {
+        clearDriveRollback(db);
+        db.execSQL("INSERT INTO drive_rollback_rows SELECT 'records',id,value FROM records WHERE id NOT LIKE 'resource:%' OR id='resource:resources'");
+        db.execSQL("INSERT INTO drive_rollback_rows SELECT 'notes',id,value FROM notes");
+        db.execSQL("INSERT INTO drive_rollback_rows VALUES ('marker','available','1')");
+        db.execSQL("INSERT INTO drive_rollback_chunks SELECT scope,id,part,payload FROM record_chunks WHERE id NOT LIKE 'resource:%' OR id='resource:resources' OR scope='notes'");
+    }
+
+    private static void restoreWhiteNoise(SQLiteDatabase db) throws Exception {
+        JSONArray cloud = (JSONArray) get(db, "records", "drive:whiteNoise");
+        Object current = get(db, "records", "resource:resources");
+        JSONArray combined = new JSONArray();
+        if (current instanceof JSONArray) {
+            JSONArray items = (JSONArray) current;
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.getJSONObject(i);
+                if (!"custom".equals(item.optString("origin"))) combined.put(item);
+            }
+        }
+        for (int i = 0; i < cloud.length(); i++) combined.put(cloud.getJSONObject(i));
+        put(db, "records", "resource:resources", combined);
+        delete(db, "records", "drive:whiteNoise");
+    }
+
+    static boolean hasDriveRollback(SQLiteDatabase db) {
+        try (Cursor row = db.rawQuery("SELECT 1 FROM drive_rollback_rows WHERE scope='marker' AND id='available'", null)) {
+            return row.moveToFirst();
+        }
+    }
+
+    static void rollbackDrive(SQLiteDatabase db) throws IOException {
+        db.beginTransaction();
+        try {
+            if (!hasDriveRollback(db)) throw new IOException("没有可回退的本地版本。");
+            clear(db, "records");
+            clear(db, "notes");
+            delete(db, "records", "resource:resources");
+            db.execSQL("INSERT INTO records SELECT id,value FROM drive_rollback_rows WHERE scope='records'");
+            db.execSQL("INSERT INTO notes SELECT id,value FROM drive_rollback_rows WHERE scope='notes'");
+            db.execSQL("INSERT INTO record_chunks SELECT scope,id,part,payload FROM drive_rollback_chunks");
+            clearDriveRollback(db);
+            db.setTransactionSuccessful();
+        } finally { db.endTransaction(); }
+    }
+
+    private static void clearDriveRollback(SQLiteDatabase db) {
+        db.delete("drive_rollback_rows", null, null);
+        db.delete("drive_rollback_chunks", null, null);
     }
 }

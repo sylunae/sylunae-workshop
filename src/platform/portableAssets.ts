@@ -8,6 +8,15 @@ export async function portableAndroidValue<T>(snapshot: T): Promise<T> {
   const walk = async (value: unknown, field = ''): Promise<unknown> => {
     if (typeof value === 'string') {
       if (!mediaFields.has(field)) return value
+      if (/^\/_capacitor_file_\/.*\/drive-media\/[a-f0-9]{64}\.[a-z0-9]+$/.test(value)) {
+        if (!assets.has(value)) {
+          const response = await fetch(value)
+          if (!response.ok) throw new Error('备份媒体无法读取。')
+          const mime = response.headers.get('content-type')?.split(';')[0] || 'application/octet-stream'
+          assets.set(value, 'data:' + mime + ';base64,' + encodeBytes(new Uint8Array(await response.arrayBuffer())))
+        }
+        return assets.get(value)!
+      }
       const id = /^(?:sylunae-note-asset:|\/_capacitor_file_.*\/note-assets\/)([a-f0-9]{64})$/.exec(value)?.[1]
       if (!id) return value
       if (!assets.has(id)) {

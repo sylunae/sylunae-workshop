@@ -9,6 +9,7 @@ import { resolveAndroidFiles } from './transfer'
 import { mediaSource } from './mediaSource'
 import { decodeBytes, encodeBytes } from './binary'
 import { nativeChunkSize, readAndroidSnapshot, writeAndroidSnapshot } from './androidStorage'
+import { createAndroidDriveBackup } from './androidDriveBackup'
 export { decodeBytes, encodeBytes } from './binary'
 
 interface FilesPlugin {
@@ -64,10 +65,11 @@ export function createAndroidAPI(): SylunaeAPI {
   const converted = new Map<string, { name: string; blob: Blob }>()
   return {
     platform: 'android',
+    driveBackup: createAndroidDriveBackup(run),
     storage: {
       load: async () => resolveAndroidFiles({ ...createDefaultSnapshot(), ...await readAndroidSnapshot(run) }, checkPaths),
       save: (patch) => writeAndroidSnapshot(run, patch, false),
-      replace: (snapshot) => writeAndroidSnapshot(run, snapshot, true),
+      replace: (snapshot, whiteNoise) => writeAndroidSnapshot(run, snapshot, true, whiteNoise),
       putNoteAsset: async (bytes, mime) => (await run<{ id: string }>('putAsset', { data: encodeBytes(bytes), mime })).id,
       getNoteAsset: async (id) => { const asset = await run<{ data?: string; mime: string }>('getAsset', { id }); return asset.data ? { bytes: decodeBytes(asset.data), mime: asset.mime } : null },
     },
@@ -142,7 +144,12 @@ export function createAndroidAPI(): SylunaeAPI {
         const resource: ResourceItem = { ...item, origin: item.builtin ? 'builtin' : 'official', state: 'installed', installedSize: saved.size, localPath: path }
         return { items: [...items.filter((entry) => entry.id !== id), resource], result: resource }
       }),
-      remove: (id) => changeResources(async (items) => { const item = items.find((entry) => entry.id === id); if (item?.localPath) await run('remove', { path: item.localPath }); return { items: items.filter((entry) => entry.id !== id), result: undefined } }),
+      remove: (id) => changeResources(async (items) => {
+        const item = items.find((entry) => entry.id === id)
+        // Cloud media can still be referenced by another item or by the rollback snapshot.
+        if (item?.localPath && !item.localPath.startsWith('drive-media/')) await run('remove', { path: item.localPath })
+        return { items: items.filter((entry) => entry.id !== id), result: undefined }
+      }),
       importWhiteNoise: () => changeResources(async (items) => {
         const track = (await androidFiles.pick<MusicTrack>({ kind: 'resource', multiple: false })).items[0]
         if (!track) return { items, result: null }

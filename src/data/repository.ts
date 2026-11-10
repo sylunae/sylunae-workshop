@@ -195,11 +195,14 @@ export const repository = {
     }
     savedNotes = nextNotes
   },
-  async replace(snapshot: AppSnapshot): Promise<AppSnapshot> {
+  async replace(snapshot: AppSnapshot, whiteNoise?: import('../shared/driveBackup').DriveWhiteNoise): Promise<AppSnapshot> {
     let safe = normalize(snapshot)
     if (window.sylunae?.platform === 'android') safe = await resolveAndroidFiles(safe, window.sylunae.music.checkPaths)
     safe.notes = await externalizeNoteImages(safe.notes)
-    if (window.sylunae) await window.sylunae.storage.replace(safe)
+    if (window.sylunae) {
+      if (whiteNoise === undefined) await window.sylunae.storage.replace(safe)
+      else await window.sylunae.storage.replace(safe, whiteNoise)
+    }
     else {
       await ensureSectionStorage()
       await db.transaction('rw', db.sections, db.notes, async () => {

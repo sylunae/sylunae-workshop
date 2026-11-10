@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, protocol, shell } from 'electron'
 import { registerAppUpdates } from './appUpdates'
+import { registerGoogleDriveBackup } from './googleDriveBackup'
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
@@ -881,6 +882,7 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  registerGoogleDriveBackup()
   const cleanConversions = registerFormatConversion()
   registerImageProcessing(cleanConversions)
   ipcMain.handle('storage:put-note-asset', (_event, bytes: Uint8Array, mime: string) => putNoteAsset(bytes, mime))
