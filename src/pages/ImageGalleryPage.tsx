@@ -2,7 +2,6 @@ import { isAndroid } from '../platform/environment'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, CalendarPlus, CheckSquare2, ChevronRight, FolderInput, FolderOpen, HardDrive, Image as ImageIcon, Images, LocateFixed, Maximize2, MoreHorizontal, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { useAppStore } from '../app/AppStore'
-import { usePersistentState } from '../lib/usePersistentState'
 import { Button } from '../components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
@@ -15,7 +14,6 @@ import { Checkbox } from '../components/ui/checkbox'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
 import type { ImageAspectType, ImageAsset, ImageCollection, ImageLibraryRoot, ImageLibraryState, ImageScanProgress } from '../shared/types'
 
-type GalleryFilter = 'all' | ImageAspectType
 type GallerySort = 'recent' | 'name'
 
 const typeLabels: Record<ImageAspectType, string> = { landscape: '横图', portrait: '竖图', square: '方图' }
@@ -49,7 +47,6 @@ export function ImageGalleryPage() {
   const { snapshot, update } = useAppStore()
   const library = snapshot?.imageLibrary ?? { roots: [], collections: [], assets: [] }
   const [selectedCollection, setSelectedCollection] = useState('all')
-  const [filter, setFilter] = usePersistentState<GalleryFilter>('navigation.galleryFilter', 'all')
   const [sort, setSort] = useState<GallerySort>('recent')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
@@ -166,15 +163,14 @@ export function ImageGalleryPage() {
     const normalized = query.trim().toLocaleLowerCase()
     return library.assets
       .filter((asset) => selectedCollection === 'all' || asset.collectionIds.includes(selectedCollection))
-      .filter((asset) => filter === 'all' || asset.aspectType === filter)
       .filter((asset) => !normalized || asset.name.toLocaleLowerCase().includes(normalized) || asset.path.toLocaleLowerCase().includes(normalized))
       .sort((a, b) => sort === 'recent' ? b.createdAt.localeCompare(a.createdAt) : a.name.localeCompare(b.name, 'zh-CN'))
-  }, [library.assets, selectedCollection, filter, query, sort])
+  }, [library.assets, selectedCollection, query, sort])
 
   const pageCount = Math.max(1, Math.ceil(visible.length / IMAGE_PAGE_SIZE))
   const pagedVisible = useMemo(() => visible.slice((page - 1) * IMAGE_PAGE_SIZE, page * IMAGE_PAGE_SIZE), [visible, page])
 
-  useEffect(() => { setPage(1); setSelectedIds(new Set()) }, [selectedCollection, filter, query, sort])
+  useEffect(() => { setPage(1); setSelectedIds(new Set()) }, [selectedCollection, query, sort])
   useEffect(() => { if (page > pageCount) setPage(pageCount) }, [page, pageCount])
 
   useEffect(() => {
@@ -460,7 +456,6 @@ export function ImageGalleryPage() {
   return <div ref={contentRef} className="image-library-shell">
     <div className="image-library-toolbar">
       <label className="image-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索文件名或路径" /></label>
-      <div className="image-type-filters">{([['all', '全部'], ['landscape', '横图'], ['portrait', '竖图'], ['square', '方图']] as const).map(([value, label]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{label}</button>)}</div>
       <div className="image-toolbar-actions">
         <Select value={sort} onValueChange={(value) => setSort(value as GallerySort)}><SelectTrigger className="image-sort"><SlidersHorizontal size={15} /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="recent">按最近收藏</SelectItem><SelectItem value="name">按文件名</SelectItem></SelectContent></Select>
         {!isAndroid && <Button variant="outline" onClick={() => setFolderImportOpen(true)}><FolderInput size={16} />导入文件夹</Button>}

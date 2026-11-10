@@ -55,7 +55,9 @@ export default function App() {
   const [collectionView, setCollectionView] = usePersistentState<'bangumi' | 'images' | 'rss'>('navigation.collectionView', 'bangumi')
   const [musicView, setMusicView] = usePersistentState<'tracks' | 'albums'>('navigation.musicView', 'tracks')
   const [homeIntent, setHomeIntent] = useState<HomeIntent | null>(null)
-  const wallpaper = useHomeWallpaper(snapshot?.settings.homeWallpapers, wallpaperSettingsOpen && (activeTool === 'home' || activeTool === 'settings'))
+  const visibleTool = activeTool === 'settings' ? 'home' : activeTool
+  const isHome = visibleTool === 'home'
+  const wallpaper = useHomeWallpaper(snapshot?.settings.homeWallpapers, !isHome || wallpaperSettingsOpen)
 
   useEffect(() => {
     if (!isAndroid) return
@@ -220,8 +222,6 @@ export default function App() {
   }
   const openSettings = () => { setSettingsMounted(true); setSettingsOpen(true) }
   const openFunFeatures = () => setFunFeaturesOpen(true)
-  const visibleTool = activeTool === 'settings' ? 'home' : activeTool
-  const isHome = visibleTool === 'home'
   const page = {
     home: <HomePage wallpaper={wallpaper.active} wallpaperSettingsOpen={wallpaperSettingsOpen} onWallpaperSettingsChange={setWallpaperSettingsOpen} onOpenTool={openFromHome} />,
     tasks: <TasksPage view={taskView} onViewChange={setTaskView} startPomodoro={homeIntent === 'pomodoro'} />,

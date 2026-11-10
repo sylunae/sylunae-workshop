@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { Album, BookHeart, BookOpen, Boxes, CalendarClock, ChevronDown, ChevronRight, CloudRain, Download, Images, Library, ListChecks, ListTodo, Menu, MoreHorizontal, Music2, NotebookPen, Rss, Settings, Sparkles, Target } from 'lucide-react'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import type { MusicTrack, ResourceItem, ToolId } from '../shared/types'
 import { BrandMark } from './Icons'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu'
@@ -59,6 +60,10 @@ export function Sidebar({ active, taskView, collectionView, musicSection, musicV
   onOpen: () => void
   onClose: () => void
 }) {
+  const isMobile = useMediaQuery('(max-width: 760px)')
+  const [mobileExpandedGroup, setMobileExpandedGroup] = useState<ToolId | null>(active)
+  const showSubmenus = isMobile || !collapsed
+  const expandedGroup = isMobile ? mobileExpandedGroup : active
   const resizeStart = useRef<{ x: number; width: number } | null>(null)
   const primaryNowPlaying = nowPlaying ?? nowPlayingAmbient
   const playingMusic = Boolean(nowPlaying)
@@ -66,10 +71,18 @@ export function Sidebar({ active, taskView, collectionView, musicSection, musicV
   const ambientCover = nowPlayingAmbient?.coverPath ?? ''
 
   const select = (tool: ToolId) => { onSelect(tool); onClose() }
+  const openMobileMenu = () => {
+    setMobileExpandedGroup(active)
+    onOpen()
+  }
+  const selectGroup = (tool: ToolId) => {
+    if (isMobile) setMobileExpandedGroup((group) => group === tool ? null : tool)
+    else select(tool)
+  }
   const openSettings = () => { onOpenSettings(); onClose() }
   const openFunFeatures = () => { onOpenFunFeatures(); onClose() }
   const startResize = (event: PointerEvent<HTMLDivElement>) => {
-    if (window.matchMedia('(max-width: 760px)').matches) return
+    if (isMobile) return
     resizeStart.current = { x: event.clientX, width }
     event.currentTarget.setPointerCapture(event.pointerId)
     document.body.classList.add('sidebar-resizing')
@@ -85,9 +98,9 @@ export function Sidebar({ active, taskView, collectionView, musicSection, musicV
 
   useEffect(() => () => document.body.classList.remove('sidebar-resizing'), [])
   return <>
-    <button className="mobile-menu" onClick={onOpen} aria-label="打开导航"><Menu size={20} /></button>
-    {mobileOpen && <button className="sidebar-backdrop" onClick={onClose} aria-label="关闭导航" />}
-    <aside className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
+    <button className="mobile-menu" onClick={openMobileMenu} aria-label="打开导航" aria-expanded={mobileOpen} aria-controls="app-sidebar"><Menu size={20} /></button>
+    <button className={`sidebar-backdrop${mobileOpen ? ' mobile-open' : ''}`} onClick={onClose} aria-label="关闭导航" inert={!mobileOpen} />
+    <aside id="app-sidebar" className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
       <button className={`brand ${active === 'home' ? 'active' : ''}`} onClick={() => select('home')} title="返回主页" aria-label="返回主页">
         <BrandMark />
         {!collapsed && <div className="brand-copy"><strong>丝月工坊</strong><span>MY QUIET SPACE</span></div>}
@@ -110,39 +123,38 @@ export function Sidebar({ active, taskView, collectionView, musicSection, musicV
       </div>
       <nav>
         {!collapsed && <div className="nav-caption">工具</div>}
-        {tools.map(({ id, label, icon: Icon }) => id === 'tasks' ? <div className={`nav-group ${active === 'tasks' ? 'expanded' : ''}`} key={id}>
-          <button className={active === id ? 'active' : ''} onClick={() => select(id)} title={label} aria-expanded={active === id}>
-            <Icon size={19} strokeWidth={1.7} /><span>{label}</span>{!collapsed && <ChevronDown className="nav-group-chevron" size={15} strokeWidth={1.8} />}
-          </button>
-          <div className="nav-children" aria-hidden={active !== 'tasks'}>
-            <button className={taskView === 'goals' ? 'active' : ''} onClick={() => { onSelectTaskView('goals'); onClose() }} title="目标追踪" tabIndex={active === 'tasks' ? 0 : -1}><Target size={17} strokeWidth={1.7} /><span>目标追踪</span></button>
-            <button className={taskView === 'todos' ? 'active' : ''} onClick={() => { onSelectTaskView('todos'); onClose() }} title="快速待办" tabIndex={active === 'tasks' ? 0 : -1}><ListTodo size={17} strokeWidth={1.7} /><span>快速待办</span></button>
-            <button className={taskView === 'pomodoro' ? 'active' : ''} onClick={() => { onSelectTaskView('pomodoro'); onClose() }} title="番茄钟" tabIndex={active === 'tasks' ? 0 : -1}><CalendarClock size={17} strokeWidth={1.7} /><span>番茄钟</span></button>
-            <button className={taskView === 'countdown' ? 'active' : ''} onClick={() => { onSelectTaskView('countdown'); onClose() }} title="倒数日" tabIndex={active === 'tasks' ? 0 : -1}><CalendarClock size={17} strokeWidth={1.7} /><span>倒数日</span></button>
-          </div>
-        </div> : id === 'collection' ? <div className={`nav-group ${active === 'collection' ? 'expanded' : ''}`} key={id}>
-          <button className={active === id ? 'active' : ''} onClick={() => select(id)} title={label} aria-expanded={active === id}>
-            <Icon size={19} strokeWidth={1.7} /><span>{label}</span>{!collapsed && <ChevronDown className="nav-group-chevron" size={15} strokeWidth={1.8} />}
-          </button>
-          <div className="nav-children" aria-hidden={active !== 'collection'}>
-            <button className={collectionView === 'bangumi' ? 'active' : ''} onClick={() => { onSelectCollectionView('bangumi'); onClose() }} title="Bangumi" tabIndex={active === 'collection' ? 0 : -1}><BookOpen size={17} strokeWidth={1.7} /><span>Bangumi</span></button>
-            <button className={collectionView === 'images' ? 'active' : ''} onClick={() => { onSelectCollectionView('images'); onClose() }} title="精选图片" tabIndex={active === 'collection' ? 0 : -1}><Images size={17} strokeWidth={1.7} /><span>精选图片</span></button>
-            <button className={collectionView === 'rss' ? 'active' : ''} onClick={() => { onSelectCollectionView('rss'); onClose() }} title="RSS 订阅" tabIndex={active === 'collection' ? 0 : -1}><Rss size={17} strokeWidth={1.7} /><span>RSS 订阅</span></button>
-          </div>
-        </div> : id === 'music' ? <div className={`nav-group music-nav-group ${active === 'music' ? 'expanded' : ''}`} key={id}>
-          <button className={active === id && musicSection === 'library' ? 'active' : ''} onClick={() => select(id)} title={label} aria-expanded={active === 'music'}>
-            <Icon size={19} strokeWidth={1.7} /><span>{label}</span>{!collapsed && <ChevronDown className="nav-group-chevron" size={15} strokeWidth={1.8} />}
-          </button>
-          <div className="nav-children" aria-hidden={active !== 'music'}>
-            <button className={musicSection === 'library' && musicView === 'tracks' ? 'active' : ''} onClick={() => { onSelectMusicView('tracks'); onClose() }} title="歌曲" tabIndex={active === 'music' ? 0 : -1}><Music2 size={17} strokeWidth={1.7} /><span>歌曲</span></button>
-            <button className={musicSection === 'library' && musicView === 'albums' ? 'active' : ''} onClick={() => { onSelectMusicView('albums'); onClose() }} title="专辑" tabIndex={active === 'music' ? 0 : -1}><Album size={17} strokeWidth={1.7} /><span>专辑</span></button>
-            <button className={musicSection === 'white-noise' ? 'active' : ''} onClick={() => { onSelectMusicSection('white-noise'); onClose() }} title="白噪音" tabIndex={active === 'music' ? 0 : -1}>
-              <CloudRain size={17} strokeWidth={1.7} /><span>白噪音</span>
+        {tools.map(({ id, label, icon: Icon }) => {
+          const current = active === id
+          if (id !== 'tasks' && id !== 'collection' && id !== 'music') {
+            return <button key={id} className={current ? 'active' : ''} onClick={() => select(id)} title={label}>
+              <Icon size={19} strokeWidth={1.7} /><span>{label}</span>
             </button>
+          }
+
+          const expanded = showSubmenus && expandedGroup === id
+          const submenuId = `sidebar-submenu-${id}`
+          return <div className={`nav-group${expanded ? ' expanded' : ''}`} key={id}>
+            <button className={current && (id !== 'music' || musicSection === 'library') ? 'active' : ''} onClick={() => selectGroup(id)} title={label} aria-expanded={expanded} aria-controls={submenuId}>
+              <Icon size={19} strokeWidth={1.7} /><span>{label}</span>{showSubmenus && <ChevronDown className="nav-group-chevron" size={15} strokeWidth={1.8} />}
+            </button>
+            <div id={submenuId} className="nav-children" aria-hidden={!expanded} inert={!expanded}>
+              {id === 'tasks' ? <>
+                <button className={current && taskView === 'goals' ? 'active' : ''} onClick={() => { onSelectTaskView('goals'); onClose() }} title="目标追踪"><Target size={17} strokeWidth={1.7} /><span>目标追踪</span></button>
+                <button className={current && taskView === 'todos' ? 'active' : ''} onClick={() => { onSelectTaskView('todos'); onClose() }} title="快速待办"><ListTodo size={17} strokeWidth={1.7} /><span>快速待办</span></button>
+                <button className={current && taskView === 'pomodoro' ? 'active' : ''} onClick={() => { onSelectTaskView('pomodoro'); onClose() }} title="番茄钟"><CalendarClock size={17} strokeWidth={1.7} /><span>番茄钟</span></button>
+                <button className={current && taskView === 'countdown' ? 'active' : ''} onClick={() => { onSelectTaskView('countdown'); onClose() }} title="倒数日"><CalendarClock size={17} strokeWidth={1.7} /><span>倒数日</span></button>
+              </> : id === 'collection' ? <>
+                <button className={current && collectionView === 'bangumi' ? 'active' : ''} onClick={() => { onSelectCollectionView('bangumi'); onClose() }} title="Bangumi"><BookOpen size={17} strokeWidth={1.7} /><span>Bangumi</span></button>
+                <button className={current && collectionView === 'images' ? 'active' : ''} onClick={() => { onSelectCollectionView('images'); onClose() }} title="精选图片"><Images size={17} strokeWidth={1.7} /><span>精选图片</span></button>
+                <button className={current && collectionView === 'rss' ? 'active' : ''} onClick={() => { onSelectCollectionView('rss'); onClose() }} title="RSS 订阅"><Rss size={17} strokeWidth={1.7} /><span>RSS 订阅</span></button>
+              </> : <>
+                <button className={current && musicSection === 'library' && musicView === 'tracks' ? 'active' : ''} onClick={() => { onSelectMusicView('tracks'); onClose() }} title="歌曲"><Music2 size={17} strokeWidth={1.7} /><span>歌曲</span></button>
+                <button className={current && musicSection === 'library' && musicView === 'albums' ? 'active' : ''} onClick={() => { onSelectMusicView('albums'); onClose() }} title="专辑"><Album size={17} strokeWidth={1.7} /><span>专辑</span></button>
+                <button className={current && musicSection === 'white-noise' ? 'active' : ''} onClick={() => { onSelectMusicSection('white-noise'); onClose() }} title="白噪音"><CloudRain size={17} strokeWidth={1.7} /><span>白噪音</span></button>
+              </>}
+            </div>
           </div>
-        </div> : <button key={id} className={active === id ? 'active' : ''} onClick={() => select(id)} title={label}>
-          <Icon size={19} strokeWidth={1.7} /><span>{label}</span>
-        </button>)}
+        })}
         {!window.sylunae && <button className="desktop-download-card" onClick={downloadDesktopApp} title="下载桌面端安装包">
           <span className="download-card-icon"><Download size={18} strokeWidth={1.8} /></span>
           <span className="download-card-copy"><strong>桌面端安装包</strong><small>下载最新 Windows 版本</small></span>

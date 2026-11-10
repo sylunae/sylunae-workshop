@@ -18,6 +18,7 @@ import { Input } from './ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { Textarea } from './ui/textarea'
 import { Switch } from './ui/switch'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import { usePersistentState } from '../lib/usePersistentState'
 import type { MediaToolsStatus } from '../shared/types'
 import { MediaToolsDialog } from './MediaToolsDialog'
@@ -344,16 +345,4 @@ function ThemeOption({ value, active, icon, title, onClick }: { value: ThemeMode
 
 function NotebookCount({ value, label }: { value: number; label: string }) {
   return <><strong>{value}</strong><span>{label}</span></>
-}
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
-  useEffect(() => {
-    const media = window.matchMedia(query)
-    const updateMatch = () => setMatches(media.matches)
-    updateMatch()
-    media.addEventListener('change', updateMatch)
-    return () => media.removeEventListener('change', updateMatch)
-  }, [query])
-  return matches
 }
