@@ -10,6 +10,7 @@ import {
   FileImage,
   AudioLines,
   ArrowLeftRight,
+  ArrowUpDown,
   Link2,
   Music,
   Pencil,
@@ -31,7 +32,6 @@ import {
   DialogTitle,
 } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
-import { Combobox } from "../components/ui/combobox";
 import {
   Select,
   SelectContent,
@@ -49,6 +49,7 @@ import { ImageProcessor } from "../components/ImageProcessor";
 import { FormatConverter } from "../components/FormatConverter";
 
 type ToolView = "home" | "clipboard" | "launcher" | "image" | "audio" | "birthdays" | "conversion" | "music-toolbox";
+type ClipboardSort = "recent" | "frequent";
 
 const tempoAnalyzerUrl = "https://tuanziai.com/audio-tools/tempo-analyze";
 
@@ -183,49 +184,32 @@ function ClipboardTool() {
   const { snapshot, update } = useAppStore();
   const items = snapshot?.clipboardSnippets ?? [];
   const [query, setQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [focusSnippetId, setFocusSnippetId] = useState<string | null>(null);
-  const [newCategory, setNewCategory] = useState("");
+  const [sort, setSort] = usePersistentState<ClipboardSort>("clipboard.shortcutSort", "recent");
   const [copied, setCopied] = useState<string | null>(null);
-  const categories = useMemo(() => {
-    const counts = new Map<string, number>();
-    items.forEach((item) => {
-      const category = item.category.trim();
-      counts.set(category, (counts.get(category) ?? 0) + 1);
+  const visible = useMemo(() => {
+    const search = query.toLowerCase();
+    return items.filter((item) =>
+      `${item.title} ${item.content}`.toLowerCase().includes(search),
+    ).sort((left, right) => {
+      const newestFirst = right.createdAt.localeCompare(left.createdAt);
+      return sort === "frequent" ? right.copyCount - left.copyCount || newestFirst : newestFirst;
     });
-    return [...counts.entries()]
-      .sort(([left], [right]) => left.localeCompare(right, "zh-CN"))
-      .map(([value, count]) => ({ value, label: value || "未分类", count }));
-  }, [items]);
-  const visible = useMemo(
-    () =>
-      items.filter(
-        (item) =>
-          item.category.trim() === selectedCategory &&
-          `${item.title} ${item.content}`
-            .toLowerCase()
-            .includes(query.toLowerCase()),
-      ),
-    [items, query, selectedCategory],
-  );
-  const save = (
-    input: Omit<
-      ClipboardSnippet,
-      "id" | "copyCount" | "createdAt" | "updatedAt"
-    >,
-  ) => {
+  }, [items, query, sort]);
+  const quickSave = (content: string, title: string) => {
     const now = nowIso();
+    const item = {
+      title, content,
+      id: newId(), copyCount: 0, createdAt: now, updatedAt: now,
+    };
     update((state) => ({
       ...state,
-      clipboardSnippets: [
-        { ...input, id: newId(), copyCount: 0, createdAt: now, updatedAt: now },
-        ...state.clipboardSnippets,
-      ],
+      clipboardSnippets: [item, ...state.clipboardSnippets],
     }));
+    setQuery("");
   };
   const updateSnippet = (
     id: string,
-    patch: Pick<ClipboardSnippet, "title" | "category" | "content">,
+    patch: Pick<ClipboardSnippet, "title" | "content">,
   ) =>
     update((state) => ({
       ...state,
@@ -246,154 +230,39 @@ function ClipboardTool() {
     setCopied(item.id);
     window.setTimeout(() => setCopied(null), 1400);
   };
-  const createCategory = () => {
-    const next = newCategory.trim();
-    if (!next) return;
-    setSelectedCategory(next);
-    setNewCategory("");
-    setQuery("");
-  };
-  const quickSave = (content: string, title = "") => {
-    const text = content.trim();
-    if (!text || selectedCategory === null) return;
-    const generatedTitle =
-      text.split(/\r?\n/, 1)[0].slice(0, 42) || "未命名内容";
-    save({
-      title: title.trim() || generatedTitle,
-      category: selectedCategory,
-      content,
-    });
-    setQuery("");
-  };
-  const frequent = [...items]
-    .filter((item) => item.copyCount > 0)
-    .sort(
-      (left, right) =>
-        right.copyCount - left.copyCount ||
-        right.updatedAt.localeCompare(left.updatedAt),
-    )
-    .slice(0, 4);
-  const recent = [...items]
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    .slice(0, 4);
-  const openSnippet = (item: ClipboardSnippet) => {
-    setSelectedCategory(item.category.trim());
-    setFocusSnippetId(item.id);
-    setQuery("");
-  };
-  if (selectedCategory === null)
-    return (
-      <div className="tool-workspace">
-        <div className="panel-heading">
-          <div>
-            <h2>剪贴板</h2>
-            <p>选择一个分类，直接粘贴就能保存内容。</p>
-          </div>
-        </div>
-        <div className="snippet-category-create">
-          <Input
-            value={newCategory}
-            onChange={(event) => setNewCategory(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") createCategory();
-            }}
-            placeholder="输入新分类名称"
-          />
-          <Button
-            className="button primary"
-            onClick={createCategory}
-            disabled={!newCategory.trim()}
-          >
-            <Plus size={16} />
-            进入新分类
-          </Button>
-        </div>
-        <div className="snippet-category-grid">
-          {categories.map((category) => (
-            <button
-              key={category.value || "uncategorized"}
-              className="snippet-category-card"
-              onClick={() => {
-                setSelectedCategory(category.value);
-                setQuery("");
-              }}
-            >
-              <Clipboard size={19} />
-              <span>
-                <strong className={category.value ? "private-category-name" : undefined}>{category.label}</strong>
-                <small>{category.count} 条内容</small>
-              </span>
-            </button>
-          ))}
-        </div>
-        {!categories.length && (
-          <ToolEmpty
-            icon={<Clipboard />}
-            text="先创建一个分类，之后直接粘贴内容"
-          />
-        )}
-        {items.length > 0 && (
-          <div className="snippet-home-sections">
-            {frequent.length > 0 && (
-              <SnippetShortcutSection
-                title="常用内容"
-                description="按复制次数排序"
-                items={frequent}
-                onCopy={copy}
-                onEdit={openSnippet}
-              />
-            )}
-            {recent.length > 0 && (
-              <SnippetShortcutSection
-                title="最近新增"
-                description="快速继续编辑或复制"
-                items={recent}
-                onCopy={copy}
-                onEdit={openSnippet}
-              />
-            )}
-          </div>
-        )}
-      </div>
-    );
-  const categoryLabel = selectedCategory || "未分类";
   return (
     <div className="tool-workspace">
       <div className="panel-heading">
-        <div>
-          <button
-            className="back-link snippet-back-link"
-            onClick={() => {
-              setSelectedCategory(null);
-              setFocusSnippetId(null);
-              setQuery("");
-            }}
-          >
-            ← 全部分类
-          </button>
-          <h2 className={selectedCategory ? "user-content" : undefined}>{categoryLabel}</h2>
-          <p>{visible.length} 条内容；在下方直接粘贴即可快速保存。</p>
-        </div>
+        <h2>剪贴板</h2>
       </div>
-      <QuickSnippetComposer category={selectedCategory} onSave={quickSave} />
-      <div className="toolbar">
+      <QuickSnippetComposer onSave={quickSave} />
+      <div className="toolbar snippet-toolbar">
         <label className="search-box">
           <Search size={16} />
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索当前分类"
+            aria-label="搜索剪贴内容"
+            placeholder="搜索标题或内容"
           />
         </label>
+        <Select value={sort} onValueChange={(value) => setSort(value as ClipboardSort)}>
+          <SelectTrigger aria-label="剪贴内容排序">
+            <ArrowUpDown aria-hidden="true" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent position="popper" align="end">
+            <SelectItem value="recent">按最近新增</SelectItem>
+            <SelectItem value="frequent">按复制次数</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div className="snippet-grid">
         {visible.map((item) => (
           <SnippetCard
             key={item.id}
             item={item}
-            categories={categories.map((category) => category.value)}
             copied={copied === item.id}
-            highlighted={focusSnippetId === item.id}
             onCopy={copy}
             onSave={updateSnippet}
             onDelete={() =>
@@ -407,172 +276,94 @@ function ClipboardTool() {
           />
         ))}
       </div>
-      {!visible.length && (
-        <ToolEmpty
-          icon={<Clipboard />}
-          text={query ? "没有匹配的剪贴内容" : "直接在上方粘贴第一条内容"}
-        />
+      {!visible.length && query && (
+        <ToolEmpty icon={<Clipboard />} text="没有匹配的剪贴内容" hint="" />
       )}
     </div>
   );
 }
 
-function SnippetShortcutSection({
-  title,
-  description,
-  items,
-  onCopy,
-  onEdit,
-}: {
-  title: string;
-  description: string;
-  items: ClipboardSnippet[];
-  onCopy: (item: ClipboardSnippet) => Promise<void>;
-  onEdit: (item: ClipboardSnippet) => void;
-}) {
-  return (
-    <section className="snippet-shortcut-section">
-      <div>
-        <h3>{title}</h3>
-        <p>{description}</p>
-      </div>
-      <div className="snippet-shortcut-grid">
-        {items.map((item) => (
-          <article key={item.id} className="snippet-shortcut-card">
-            <span className={item.category.trim() ? "private-category-name" : undefined}>{item.category.trim() || "未分类"}</span>
-            <strong className={item.title ? "private-snippet-title" : undefined}>{item.title || "无标题内容"}</strong>
-            <p className="private-snippet-content">{item.content}</p>
-            <div>
-              <Button
-                variant="outline"
-                className="button secondary"
-                onClick={() => void onCopy(item)}
-              >
-                <Copy size={14} />
-                复制
-              </Button>
-              <Button
-                variant="ghost"
-                className="button"
-                onClick={() => onEdit(item)}
-              >
-                编辑
-              </Button>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function QuickSnippetComposer({
-  category,
   onSave,
 }: {
-  category: string;
-  onSave: (content: string, title?: string) => void;
+  onSave: (content: string, title: string) => void;
 }) {
   const [content, setContent] = useState("");
   const [title, setTitle] = useState("");
-  const submit = () => {
-    onSave(content, title);
-    setContent("");
-    setTitle("");
-  };
   return (
-    <div className="snippet-quick-composer">
+    <form
+      className="snippet-quick-composer"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const trimmedTitle = title.trim();
+        if (!trimmedTitle || !content.trim()) return;
+        onSave(content, trimmedTitle);
+        setContent("");
+        setTitle("");
+      }}
+    >
       <Textarea
         autoFocus
+        required
         value={content}
         onChange={(event) => setContent(event.target.value)}
-        onPaste={(event) => {
-          const pasted = event.clipboardData.getData("text/plain");
-          if (!pasted.trim()) return;
-          event.preventDefault();
-          onSave(pasted);
-          setContent("");
-        }}
-        rows={4}
-        placeholder={`在“${category || "未分类"}”中直接粘贴内容，粘贴后会立即保存`}
+        rows={1}
+        aria-label="粘贴内容"
+        placeholder="粘贴内容"
       />
-      <div>
-        <Input
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          placeholder="标题（可选，默认取第一行）"
-        />
-        <Button
-          className="button primary"
-          onClick={submit}
-          disabled={!content.trim()}
-        >
-          保存内容
-        </Button>
-      </div>
-    </div>
+      <Input
+        required
+        type="text"
+        enterKeyHint="done"
+        aria-label="标题"
+        aria-keyshortcuts="Enter"
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        placeholder="标题（必填）"
+      />
+    </form>
   );
 }
 
 function SnippetCard({
   item,
-  categories,
   copied,
-  highlighted,
   onCopy,
   onSave,
   onDelete,
 }: {
   item: ClipboardSnippet;
-  categories: string[];
   copied: boolean;
-  highlighted: boolean;
   onCopy: (item: ClipboardSnippet) => Promise<void>;
   onSave: (
     id: string,
-    value: Pick<ClipboardSnippet, "title" | "category" | "content">,
+    value: Pick<ClipboardSnippet, "title" | "content">,
   ) => void;
   onDelete: () => void;
 }) {
-  const cardRef = useRef<HTMLElement>(null);
   const [title, setTitle] = useState(item.title);
-  const [category, setCategory] = useState(item.category);
   const [content, setContent] = useState(item.content);
   useEffect(() => {
     setTitle(item.title);
-    setCategory(item.category);
     setContent(item.content);
-  }, [item]);
-  const save = (
-    next: Pick<ClipboardSnippet, "title" | "category" | "content">,
-  ) => onSave(item.id, next);
-  const normalizeTitle = () => {
-    const next = title.trim();
-    setTitle(next);
-    save({ title: next, category, content });
+  }, [item.title, item.content]);
+  const save = () => {
+    const nextTitle = title.trim();
+    setTitle(nextTitle);
+    if (nextTitle !== item.title || content !== item.content) {
+      onSave(item.id, { title: nextTitle, content });
+    }
   };
-  const normalizeCategory = () => {
-    const next = category.trim();
-    setCategory(next);
-    save({ title, category: next, content });
-  };
-  useEffect(() => {
-    if (highlighted)
-      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [highlighted]);
   return (
-    <article
-      ref={cardRef}
-      className={`snippet-card ${highlighted ? "highlighted" : ""}`}
-    >
+    <article className="snippet-card">
       <div className="snippet-card-header">
-        <Combobox
-          value={category}
-          onValueChange={setCategory}
-          onBlur={normalizeCategory}
-          options={categories}
-          placeholder="未分类"
-          emptyMessage="没有匹配的已有分类，可直接新建"
+        <Input
+          className="snippet-title-input"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          onBlur={save}
+          aria-label="剪贴内容标题"
+          placeholder="无标题内容"
         />
         <button
           className="icon-button danger"
@@ -582,25 +373,19 @@ function SnippetCard({
           <Trash2 size={15} />
         </button>
       </div>
-      <Input
-        className="snippet-title-input"
-        value={title}
-        onChange={(event) => setTitle(event.target.value)}
-        onBlur={normalizeTitle}
-        placeholder="无标题内容"
-      />
       <Textarea
         className="snippet-content-input"
         value={content}
         onChange={(event) => setContent(event.target.value)}
-        onBlur={() => save({ title, category, content })}
+        onBlur={save}
+        aria-label="剪贴内容正文"
         rows={6}
         placeholder="输入剪贴内容…"
       />
       <Button
         variant="outline"
-        className="button secondary full"
-        onClick={() => void onCopy({ ...item, title, category, content })}
+        className="button secondary self-start"
+        onClick={() => void onCopy({ ...item, content })}
       >
         {copied ? <Check size={16} /> : <Copy size={16} />}
         {copied ? "已复制" : "复制内容"}
@@ -870,12 +655,16 @@ function LinkDialog({
   );
 }
 
-function ToolEmpty({ icon, text }: { icon: ReactNode; text: string }) {
+function ToolEmpty({ icon, text, hint = "从右上角的新建按钮开始。" }: {
+  icon: ReactNode;
+  text: string;
+  hint?: string;
+}) {
   return (
     <div className="tool-empty">
       {icon}
       <strong>{text}</strong>
-      <span>从右上角的新建按钮开始。</span>
+      {hint && <span>{hint}</span>}
     </div>
   );
 }

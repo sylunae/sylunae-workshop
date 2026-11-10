@@ -1,7 +1,13 @@
 import type { AppSnapshot } from './types'
+import { defaultHomeQuickActions } from './homeQuickActions'
 import { normalizeBirthdays } from '../birthdays/reminders'
 import { normalizeThemePalettes } from './theme'
 import { DESK_COMPANION_PRESETS, createDeskCompanionPreset } from './deskCompanionPresets'
+
+export const defaultHomeWallpaperCopy = {
+  title: '欢迎来到丝月工坊',
+  description: '从一条待办、一篇笔记，或一首喜欢的歌开始。',
+}
 
 export function createDefaultSnapshot(): AppSnapshot {
   const now = new Date().toISOString()
@@ -19,7 +25,7 @@ export function createDefaultSnapshot(): AppSnapshot {
       bangumiUsername: '',
       homeWallpaper: '',
       homeWallpapers: [],
-      homeQuickActions: ['new-note', 'new-todo', 'pomodoro', 'music', 'collection'],
+      homeQuickActions: [...defaultHomeQuickActions],
       weatherLocation: {
         name: '吉隆坡',
         country: '马来西亚',

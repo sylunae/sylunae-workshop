@@ -2,8 +2,9 @@ import { externalizeNoteImages } from './noteAssets'
 import { applicationDatabaseName } from '../lib/storageEnvironment'
 import { resolveAndroidFiles } from '../platform/transfer'
 import Dexie, { type EntityTable } from 'dexie'
-import { createDefaultSnapshot } from '../shared/defaults'
-import type { AppSnapshot, AppSnapshotPatch, DeskCompanionCharacter, DeskCompanionSettings, HomeQuickActionId, Note } from '../shared/types'
+import { createDefaultSnapshot, defaultHomeWallpaperCopy } from '../shared/defaults'
+import type { AppSnapshot, AppSnapshotPatch, DeskCompanionCharacter, DeskCompanionSettings, Note } from '../shared/types'
+import { normalizeHomeQuickActions } from '../shared/homeQuickActions'
 import { migrateDefaultThemePalettes } from '../shared/theme'
 import { reconcileMusicLibrary } from '../music/albums'
 import { normalizeImageLibrary } from '../images/library'
@@ -87,12 +88,15 @@ function normalize(snapshot: Partial<AppSnapshot> | undefined): AppSnapshot {
   const migratedTool = legacyTool === 'goals' ? 'tasks' : legacyTool === 'library' ? 'collection' : legacyTool
   const lastTool = ['home', 'tasks', 'notes', 'music', 'collection', 'tools', 'settings'].includes(migratedTool ?? '') ? migratedTool! : defaults.settings.lastTool
   const homeWallpapers = snapshot.settings?.homeWallpapers?.length
-    ? snapshot.settings.homeWallpapers.slice(0, 5)
+    ? snapshot.settings.homeWallpapers.slice(0, 5).map((wallpaper) => (
+      wallpaper.title === '换一张喜欢的壁纸' && wallpaper.description === '让每一次打开，都有好心情。'
+        ? { ...wallpaper, ...defaultHomeWallpaperCopy }
+        : wallpaper
+    ))
     : snapshot.settings?.homeWallpaper
-      ? [{ id: 'legacy-home-wallpaper', image: snapshot.settings.homeWallpaper, title: '换一张喜欢的壁纸', description: '让每一次打开，都有好心情。' }]
+      ? [{ id: 'legacy-home-wallpaper', image: snapshot.settings.homeWallpaper, ...defaultHomeWallpaperCopy }]
       : []
-  const validHomeQuickActions: HomeQuickActionId[] = ['new-note', 'new-todo', 'pomodoro', 'music', 'collection']
-  const homeQuickActions = snapshot.settings?.homeQuickActions?.filter((id, index, items) => validHomeQuickActions.includes(id) && items.indexOf(id) === index)
+  const homeQuickActions = normalizeHomeQuickActions(snapshot.settings?.homeQuickActions)
   const companion = snapshot.settings?.deskCompanion as LegacyCompanionSettings | undefined
   const defaultCharacter = defaults.settings.deskCompanion.characters[0]
   const legacyCharacter: Partial<DeskCompanionCharacter> = {
@@ -127,7 +131,7 @@ function normalize(snapshot: Partial<AppSnapshot> | undefined): AppSnapshot {
     ...defaults,
     ...snapshot,
     version: 1,
-    settings: { ...defaults.settings, ...snapshot.settings, homeWallpapers, homeQuickActions: homeQuickActions?.length ? homeQuickActions : defaults.settings.homeQuickActions, lastTool: lastTool as AppSnapshot['settings']['lastTool'], themePalettes: migrateDefaultThemePalettes(snapshot.settings?.themePalettes), deskCompanion },
+    settings: { ...defaults.settings, ...snapshot.settings, homeWallpapers, homeQuickActions, lastTool: lastTool as AppSnapshot['settings']['lastTool'], themePalettes: migrateDefaultThemePalettes(snapshot.settings?.themePalettes), deskCompanion },
     tracks: music.tracks,
     albums: music.albums,
     folders: snapshot.folders ?? [],
@@ -138,7 +142,9 @@ function normalize(snapshot: Partial<AppSnapshot> | undefined): AppSnapshot {
     todoCompletionRecords: snapshot.todoCompletionRecords ?? [],
     pomodoro: { ...defaults.pomodoro, ...snapshot.pomodoro },
     countdowns: normalizeCountdowns(snapshot.countdowns ?? [], imageLibrary.assets),
-    clipboardSnippets: (snapshot.clipboardSnippets ?? []).map((snippet) => ({ ...snippet, copyCount: snippet.copyCount ?? 0 })),
+    clipboardSnippets: (snapshot.clipboardSnippets ?? []).map(({ id, title, content, copyCount, createdAt, updatedAt }) => ({
+      id, title, content, copyCount: copyCount ?? 0, createdAt, updatedAt,
+    })),
       launcherLinks: snapshot.launcherLinks ?? [],
     birthdays: normalizeBirthdays(snapshot.birthdays),
       imageLibrary,

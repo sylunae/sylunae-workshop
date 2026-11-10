@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { AppSettings, AppSnapshot, BackupEnvelope, PartialBackupEnvelope, PartialBackupSection } from '../shared/types'
+import { defaultHomeQuickActions, homeQuickActionIds, maxHomeQuickActions, normalizeHomeQuickActions } from '../shared/homeQuickActions'
 import { normalizeThemePalettes } from '../shared/theme'
 import { normalizeImageLibrary } from '../images/library'
 import { normalizeBirthdays, validBirthdayDate } from '../birthdays/reminders'
@@ -11,6 +12,7 @@ const weatherLocationSchema = z.object({ name: z.string(), country: z.string(), 
 const defaultWeatherLocation = { name: '吉隆坡', country: '马来西亚', admin1: '', latitude: 3.139, longitude: 101.6869, timezone: 'Asia/Kuala_Lumpur' }
 const weatherSnapshotSchema = z.object({ location: weatherLocationSchema, temperature: z.number(), apparent: z.number(), code: z.number(), daily: z.array(z.object({ minimum: z.number(), maximum: z.number(), code: z.number() })), fetchedAt: timestamp })
 const homeWallpaperSchema = z.object({ id: z.string(), image: z.string(), title: z.string(), description: z.string() })
+const homeQuickActionsSchema = z.array(z.enum(homeQuickActionIds)).max(maxHomeQuickActions).transform((ids) => normalizeHomeQuickActions(ids))
 const settingsSchema = z.object({
   theme: z.enum(['system', 'light', 'dark']),
   themePalettes: z.object({
@@ -26,7 +28,7 @@ const settingsSchema = z.object({
   bangumiUsername: z.string(),
   homeWallpaper: z.string().optional().default(''),
   homeWallpapers: z.array(homeWallpaperSchema).max(5).optional().default([]),
-  homeQuickActions: z.array(z.enum(['new-note', 'new-todo', 'pomodoro', 'music', 'collection'])).min(1).max(5).optional().default(['new-note', 'new-todo', 'pomodoro', 'music', 'collection']),
+  homeQuickActions: homeQuickActionsSchema.optional().default(defaultHomeQuickActions),
   weatherLocation: weatherLocationSchema.optional().default(defaultWeatherLocation),
   weatherCache: weatherSnapshotSchema.nullable().optional().default(null),
   recentTools: z.array(z.enum(['tasks', 'notes', 'music', 'collection', 'tools'])).optional().default([]),
@@ -60,7 +62,7 @@ const countdownSchema = z.object({
   includeStartDay: z.boolean().optional().default(false), accent: z.enum(['neutral', 'rose', 'amber', 'sage', 'sky']).optional().default('neutral'),
   coverImagePath: z.string().optional().default(''), coverImageId: z.string().optional(), pinned: z.boolean(), createdAt: timestamp, updatedAt: timestamp,
 }).transform((event) => ({ ...event, repeat: event.repeat ?? (event.yearly ? 'yearly' as const : 'none' as const) }))
-const clipboardSchema = z.object({ id: z.string(), title: z.string(), content: z.string(), category: z.string(), copyCount: z.number().int().nonnegative().optional().default(0), createdAt: timestamp, updatedAt: timestamp })
+const clipboardSchema = z.object({ id: z.string(), title: z.string(), content: z.string(), copyCount: z.number().int().nonnegative().optional().default(0), createdAt: timestamp, updatedAt: timestamp })
 const launcherSchema = z.object({ id: z.string(), title: z.string(), url: z.string(), description: z.string(), faviconUrl: z.string().optional(), archived: z.boolean().optional().default(false), createdAt: timestamp, updatedAt: timestamp })
 const birthdaySchema = z.object({
   people: z.array(z.object({ id: z.string().min(1), name: z.string().min(1), date: z.string().refine(validBirthdayDate), enabled: z.boolean() })),
@@ -99,7 +101,7 @@ const envelopeSchema = z.object({
 const partialSections = ['home', 'tasks', 'notes', 'music', 'collection', 'tools', 'settings'] as const satisfies readonly PartialBackupSection[]
 const imageLibrarySchema = z.object({ roots: z.array(imageRootSchema), collections: z.array(imageCollectionSchema).optional().default([]), assets: z.array(imageAssetSchema) })
 const partialPayloadSchemas: Record<PartialBackupSection, z.ZodType> = {
-  home: z.object({ displayName: z.string(), homeWallpaper: z.string(), homeWallpapers: z.array(homeWallpaperSchema), homeQuickActions: z.array(z.enum(['new-note', 'new-todo', 'pomodoro', 'music', 'collection'])), weatherLocation: weatherLocationSchema, weatherCache: weatherSnapshotSchema.nullable() }),
+  home: z.object({ displayName: z.string(), homeWallpaper: z.string(), homeWallpapers: z.array(homeWallpaperSchema), homeQuickActions: homeQuickActionsSchema, weatherLocation: weatherLocationSchema, weatherCache: weatherSnapshotSchema.nullable() }),
   tasks: z.object({ goals: z.array(goalSchema), todos: z.array(todoSchema), recurringTodos: z.array(recurringTodoSchema).optional().default([]), todoCompletionRecords: z.array(todoCompletionRecordSchema).optional().default([]), pomodoro: pomodoroSchema, countdowns: z.array(countdownSchema).optional().default([]) }),
   notes: z.object({ folders: z.array(folderSchema), notes: z.array(noteSchema) }),
   music: z.object({ tracks: z.array(trackSchema), albums: z.array(albumSchema) }),

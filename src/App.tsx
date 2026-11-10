@@ -5,9 +5,10 @@ import { Sidebar } from './components/Sidebar'
 import { FunFeaturesDialog } from './components/FunFeaturesDialog'
 import { DeskCompanion } from './components/DeskCompanion'
 import { DesktopUpdate } from './components/DesktopUpdate'
+import { HomeWallpaperBackdrop, useHomeWallpaper } from './components/HomeWallpaperBackdrop'
 import { Spinner } from './components/Icons'
 import { useAppStore } from './app/AppStore'
-import type { MusicTrack, PomodoroMode, ResourceItem, ToolId, WorkspaceToolId } from './shared/types'
+import type { HomeIntent, MusicTrack, PomodoroMode, ResourceItem, ToolId, WorkspaceToolId } from './shared/types'
 import { accessibleForeground, themeColorFields, themeCssVariables, themeDerivedCssVariables } from './shared/theme'
 import { TooltipProvider } from './components/ui/tooltip'
 import { playPomodoroAlarm, unlockPomodoroAlarm } from './utils/pomodoroAlarm'
@@ -45,6 +46,7 @@ export default function App() {
   const [nowPlaying, setNowPlaying] = useState<MusicTrack | null>(null)
   const [nowPlayingAmbient, setNowPlayingAmbient] = useState<ResourceItem | null>(null)
   const [pageScrolled, setPageScrolled] = useState(false)
+  const [wallpaperSettingsOpen, setWallpaperSettingsOpen] = useState(false)
   // Reloads stay on the current page, while closing the desktop window clears
   // sessionStorage so the next app launch begins on the home page.
   const [activeTool, setActiveTool] = useSessionState<ToolId>('navigation.activeTool', 'home')
@@ -52,7 +54,8 @@ export default function App() {
   const [taskView, setTaskView] = usePersistentState<'goals' | 'todos' | 'pomodoro' | 'countdown'>('navigation.tasksView', 'goals')
   const [collectionView, setCollectionView] = usePersistentState<'bangumi' | 'images' | 'rss'>('navigation.collectionView', 'bangumi')
   const [musicView, setMusicView] = usePersistentState<'tracks' | 'albums'>('navigation.musicView', 'tracks')
-  const [homeIntent, setHomeIntent] = useState<'new-note' | 'todos' | 'pomodoro' | 'clipboard' | null>(null)
+  const [homeIntent, setHomeIntent] = useState<HomeIntent | null>(null)
+  const wallpaper = useHomeWallpaper(snapshot?.settings.homeWallpapers, wallpaperSettingsOpen && (activeTool === 'home' || activeTool === 'settings'))
 
   useEffect(() => {
     if (!isAndroid) return
@@ -123,6 +126,9 @@ export default function App() {
   }, [snapshot?.pomodoro.running, snapshot?.pomodoro.endsAt, snapshot?.pomodoro.mode])
 
   useEffect(() => setPageScrolled(false), [activeTool, musicSection])
+  useEffect(() => {
+    if (activeTool !== 'home' && activeTool !== 'settings') setWallpaperSettingsOpen(false)
+  }, [activeTool])
 
   useEffect(() => {
     if (!snapshot?.pomodoro.running || !snapshot.pomodoro.endsAt) return
@@ -161,8 +167,11 @@ export default function App() {
       return { ...state, settings: { ...state.settings, lastTool: tool, recentTools, toolUsage, updatedAt: new Date().toISOString() } }
     })
   }
-  const openFromHome = (tool: ToolId, intent?: 'new-note' | 'todos' | 'pomodoro' | 'clipboard') => {
+  const openFromHome = (tool: ToolId, intent?: HomeIntent) => {
     if (intent === 'pomodoro') unlockPomodoroAlarm()
+    if (tool === 'tasks' && (intent === 'goals' || intent === 'todos' || intent === 'pomodoro' || intent === 'countdown')) setTaskView(intent)
+    if (tool === 'music') setMusicSection(intent === 'white-noise' ? 'white-noise' : 'library')
+    if (tool === 'collection' && (intent === 'images' || intent === 'rss')) setCollectionView(intent)
     setHomeIntent(intent ?? null)
     setActiveTool(tool)
     update((state) => {
@@ -211,21 +220,24 @@ export default function App() {
   }
   const openSettings = () => { setSettingsMounted(true); setSettingsOpen(true) }
   const openFunFeatures = () => setFunFeaturesOpen(true)
+  const visibleTool = activeTool === 'settings' ? 'home' : activeTool
+  const isHome = visibleTool === 'home'
   const page = {
-    home: <HomePage onOpenTool={openFromHome} />,
-    tasks: <TasksPage view={taskView} onViewChange={setTaskView} initialView={homeIntent === 'todos' ? 'todos' : homeIntent === 'pomodoro' ? 'pomodoro' : 'goals'} startPomodoro={homeIntent === 'pomodoro'} />,
+    home: <HomePage wallpaper={wallpaper.active} wallpaperSettingsOpen={wallpaperSettingsOpen} onWallpaperSettingsChange={setWallpaperSettingsOpen} onOpenTool={openFromHome} />,
+    tasks: <TasksPage view={taskView} onViewChange={setTaskView} startPomodoro={homeIntent === 'pomodoro'} />,
     collection: <CollectionPage view={collectionView} onViewChange={setCollectionView} />,
     tools: <ToolsPage initialView={homeIntent === 'clipboard' ? 'clipboard' : 'home'} />,
     music: null,
     notes: <NotesPage createOnOpen={homeIntent === 'new-note'} />,
-  }[activeTool === 'settings' ? 'home' : activeTool]
+  }[visibleTool]
 
   const renderedSidebarWidth = snapshot.settings.sidebarCollapsed ? collapsedSidebarWidth : snapshot.settings.sidebarWidth
   const pomodoroTotal = Math.max(1, pomodoroDuration(snapshot.pomodoro))
   const pomodoroProgress = Math.min(100, Math.max(0, ((pomodoroTotal - snapshot.pomodoro.secondsRemaining) / pomodoroTotal) * 100))
   const pomodoroTime = `${String(Math.floor(snapshot.pomodoro.secondsRemaining / 60)).padStart(2, '0')}:${String(snapshot.pomodoro.secondsRemaining % 60).padStart(2, '0')}`
 
-  return <BirthdayNotifications><TooltipProvider><div className="app-shell" style={{ '--sidebar-width': `${renderedSidebarWidth}px` } as CSSProperties}>
+  return <BirthdayNotifications><TooltipProvider><div className={`app-shell${isHome ? ' app-shell-home' : ''}`} style={{ '--sidebar-width': `${renderedSidebarWidth}px`, '--wallpaper-image': wallpaper.backgroundImage } as CSSProperties}>
+    <HomeWallpaperBackdrop {...wallpaper} />
     <Sidebar active={activeTool} taskView={taskView} collectionView={collectionView} musicSection={musicSection} musicView={musicView} collapsed={snapshot.settings.sidebarCollapsed} width={renderedSidebarWidth} mobileOpen={mobileOpen} settingsOpen={settingsOpen} funFeaturesOpen={funFeaturesOpen} nowPlaying={nowPlaying} nowPlayingAmbient={nowPlayingAmbient} onSelect={selectTool} onSelectTaskView={selectTaskView} onSelectCollectionView={selectCollectionView} onSelectMusicSection={selectMusicSection} onSelectMusicView={selectMusicView} onOpenSettings={openSettings} onOpenFunFeatures={openFunFeatures} onResize={resizeSidebar} onOpen={() => setMobileOpen(true)} onClose={() => setMobileOpen(false)} />
     {isElectron() && <div className={`app-titlebar ${pageScrolled ? 'scrolled' : ''} ${snapshot.pomodoro.running ? 'pomodoro-running' : ''}`}>
       <div className="app-titlebar-drag" />

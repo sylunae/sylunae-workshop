@@ -1,10 +1,11 @@
 import type { ImageNamingRule } from './imageNaming'
 import type { JSONContent } from '@tiptap/react'
+import type { HomeQuickActionId } from './homeQuickActions'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type WorkspaceToolId = 'tasks' | 'notes' | 'music' | 'collection' | 'tools'
 export type ToolId = 'home' | WorkspaceToolId | 'settings'
-export type HomeQuickActionId = 'new-note' | 'new-todo' | 'pomodoro' | 'music' | 'collection'
+export type HomeIntent = 'new-note' | 'todos' | 'pomodoro' | 'goals' | 'countdown' | 'white-noise' | 'images' | 'rss' | 'clipboard'
 
 export interface ThemePalette {
   bg: string
@@ -497,7 +498,6 @@ export interface ClipboardSnippet {
   id: string
   title: string
   content: string
-  category: string
   copyCount: number
   createdAt: string
   updatedAt: string

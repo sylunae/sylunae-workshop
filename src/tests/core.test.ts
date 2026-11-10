@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultSnapshot } from '../shared/defaults'
-import { backupSummary, createBackup, parseBackup } from '../data/backup'
+import { applyPartialBackup, backupSummary, createBackup, createPartialBackup, parseBackup, parsePartialBackup } from '../data/backup'
 import { fetchBangumiCollection } from '../data/bangumi'
 import { goalProgress, isOverdue } from '../utils'
 import { accessibleForeground, getThemeContrastIssues, normalizeThemePalettes, parseThemePalettes, serializeThemePalettes } from '../shared/theme'
@@ -31,6 +31,37 @@ describe('backup format', () => {
 
   it('rejects unrelated json', () => {
     expect(() => parseBackup('{"hello":"world"}')).toThrow()
+  })
+
+  it('imports categorized and uncategorized clipboard entries into the same list', () => {
+    const timestamp = '2026-09-12T00:00:00.000Z'
+    const legacy = {
+      id: 'legacy-snippet', title: '旧条目', content: '保留正文',
+      copyCount: 3, createdAt: timestamp, updatedAt: timestamp,
+    }
+    const current = { ...legacy, id: 'new-snippet', title: '新条目', copyCount: 0 }
+    const categorized = { ...legacy, category: '旧分类' }
+    const snapshot = createDefaultSnapshot()
+    snapshot.clipboardSnippets = [categorized, current]
+
+    const full = parseBackup(JSON.stringify(createBackup(snapshot)))
+    expect(full.snapshot.clipboardSnippets).toEqual([legacy, current])
+    const partial = parsePartialBackup(JSON.stringify(createPartialBackup(snapshot, 'tools')))
+    expect(applyPartialBackup(createDefaultSnapshot(), partial).clipboardSnippets).toEqual([legacy, current])
+  })
+
+  it('preserves seven ordered homepage shortcuts in full and homepage backups', () => {
+    const snapshot = createDefaultSnapshot()
+    const shortcuts = ['images', 'countdown', 'new-note', 'white-noise', 'clipboard', 'goals', 'rss'] as const
+    snapshot.settings.homeQuickActions = [...shortcuts]
+
+    expect(parseBackup(JSON.stringify(createBackup(snapshot))).snapshot.settings.homeQuickActions).toEqual(shortcuts)
+    const partial = parsePartialBackup(JSON.stringify(createPartialBackup(snapshot, 'home')))
+    expect(applyPartialBackup(createDefaultSnapshot(), partial).settings.homeQuickActions).toEqual(shortcuts)
+
+    snapshot.settings.homeQuickActions.push('notes')
+    expect(() => parseBackup(JSON.stringify(createBackup(snapshot)))).toThrow()
+    expect(() => parsePartialBackup(JSON.stringify(createPartialBackup(snapshot, 'home')))).toThrow()
   })
 
   it('migrates legacy countdown fields while importing a backup', () => {
