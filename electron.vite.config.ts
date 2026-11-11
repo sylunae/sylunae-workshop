@@ -2,6 +2,7 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'node:path'
+import { legalPagesPlugin } from './scripts/legalPagesPlugin'
 
 export default defineConfig({
   main: {
@@ -14,8 +15,8 @@ export default defineConfig({
   },
   renderer: {
     root: '.',
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), legalPagesPlugin()],
     resolve: { alias: { '@': resolve('src') } },
-    build: { rollupOptions: { input: resolve('index.html') } },
+    build: { rollupOptions: { input: { app: resolve('index.html'), privacy: resolve('privacy.html'), terms: resolve('terms.html') } } },
   },
 })

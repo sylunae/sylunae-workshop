@@ -20,6 +20,11 @@ pnpm run package:android
 pnpm run build:android  # 构建前端并同步到 Android 工程
 pnpm run open:android   # 使用 Android Studio 打开工程
 pnpm run test:android   # 已连接手机/已启动模拟器时执行原生测试
+
+# 新版本
+$env:ORG_GRADLE_PROJECT_workshopVersionName = '0.1.7'
+$env:ORG_GRADLE_PROJECT_workshopVersionCode = '1007'
+pnpm run package:android
 ```
 
 正式包内置前端资源，离线即可启动，不依赖电脑运行开发服务器。网络服务如 Bangumi、天气和可选资源下载仍需要网络。

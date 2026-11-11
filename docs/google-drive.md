@@ -24,6 +24,23 @@ $env:ANDROID_HOME = (Resolve-Path .android-tools/sdk).Path
 
 只有实际安装的构建类型需要配置。正式版签名尚未创建时，先按 [Android 构建说明](android.md) 打包一次，再取 release 的 SHA-1。手机需要可用的 Google Play 服务。
 
+## OAuth 公开页面
+
+项目提供以下独立页面，主页页脚与「设置 → 关于 → 法律与隐私」均有入口：
+
+- `privacy.html`：隐私权政策。
+- `terms.html`：应用服务条款。
+
+运行 `npm run build:web` 后，将整个 `dist/` 发布到你控制的公开 HTTPS 站点（也可放在子目录）。例如站点为 `https://你的域名/`，则在 Google Auth Platform → Branding 填写主页 `https://你的域名/`、隐私权政策 `https://你的域名/privacy.html`、应用服务条款 `https://你的域名/terms.html`。这些是部署后的地址格式，不是已经上线的链接。
+
+两份页面的正文在开发服务器及构建时直接生成到 HTML，无需登录、JavaScript 或本地应用数据库即可阅读；应用内复用同一份文案，通过现有弹窗阅读。静态托管应直接提供两个 HTML 文件，不要将它们重写成应用首页。Electron 构建也包含相同页面，资源使用构建后的相对路径。
+
+发布前确认政策中的提供者（sylunae）、项目反馈入口、数据处理方式与实际部署一致；Google Cloud 的用户支持邮箱应填写你实际维护的邮箱。当前页面提供项目 Issue 作为联系入口，没有虚构联系邮箱。公开页面若另外接入分析、代理或托管日志服务，需要同步补充相应数据处理说明。
+
+在无痕窗口确认这三个 HTTPS 地址无需登录即可访问，再将站点域名加入 Authorized domains，并按 Google 要求完成域名所有权验证。切换 Audience → In production 与品牌验证是不同步骤；页面准备完成不代表已经发布或通过审核。当前 `drive.appdata` 属于非敏感权限，但品牌验证等要求仍以控制台对该项目显示的要求为准。
+
+官方说明：[品牌验证及主页／政策要求](https://developers.google.com/identity/protocols/oauth2/production-readiness/brand-verification)、[Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy)、[应用专用空间权限](https://developers.google.com/workspace/drive/api/guides/appdata)。
+
 ## 从测试版切换到正式版
 
 1. 从 [GitHub Releases](https://github.com/sylunae/sylunae-workshop/releases) 下载 Windows 安装包和 Android 正式 APK。Android 正式包使用与旧版相同的签名时，可直接覆盖安装。

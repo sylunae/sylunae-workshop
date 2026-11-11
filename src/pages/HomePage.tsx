@@ -12,6 +12,7 @@ import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
 import { localDateKey, occursOnDate } from '../todos/recurring'
+import { LegalLinks } from '../components/LegalLinks'
 
 interface CitySearchResult extends WeatherLocation { id: number }
 interface QuickAction { label: string; hint: string; icon: ReactNode; tool: ToolId; intent?: HomeIntent }
@@ -144,6 +145,7 @@ export function HomePage({ wallpaper, wallpaperSettingsOpen, onWallpaperSettings
         <WeatherSummary />
         <p><Clover size={16} aria-hidden="true" />「 慢下来，和喜欢的一切在一起。 」</p>
       </footer>
+      <div className="home-legal"><p>丝月工坊 · 收藏、音乐、笔记与任务</p><LegalLinks /></div>
     </div>
     <DisplayNameDialog open={nameDialogOpen} name={snapshot.settings.displayName} onOpenChange={setNameDialogOpen} onSave={(displayName) => update((state) => ({ ...state, settings: { ...state.settings, displayName, updatedAt: new Date().toISOString() } }))} />
     <WallpaperSettingsDialog open={wallpaperSettingsOpen} wallpapers={snapshot.settings.homeWallpapers} onOpenChange={onWallpaperSettingsChange} onSave={(homeWallpapers) => update((state) => ({ ...state, settings: { ...state.settings, homeWallpaper: '', homeWallpapers, updatedAt: new Date().toISOString() } }))} />

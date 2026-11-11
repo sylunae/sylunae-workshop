@@ -27,6 +27,7 @@ import { DesktopUpdate } from './DesktopUpdate'
 import { AndroidUpdate } from './AndroidUpdate'
 import { GoogleDriveBackupSettings } from './GoogleDriveBackupSettings'
 import { App as CapacitorApp } from '@capacitor/app'
+import { LegalLinks } from './LegalLinks'
 
 type SettingsSection = 'appearance' | 'focus' | 'resources' | 'connections' | 'data' | 'about'
 
@@ -317,6 +318,7 @@ function AboutSettings() {
   const refreshTools = () => { if (desktop) void window.sylunae!.music.getMediaToolsStatus().then(setToolsStatus) }
   useEffect(refreshTools, [desktop])
   return <div className="about-settings">
+    <section className="settings-pane"><SettingHeading icon={<ShieldCheck />} title="法律与隐私" description="了解工坊如何处理数据，以及使用应用的相关约定。" /><LegalLinks /></section>
     <section className="settings-pane"><SettingHeading icon={desktop || isAndroid ? <HardDrive /> : <Globe2 />} title="运行环境" description={isAndroid ? 'Android 客户端' : desktop ? 'Electron 桌面版' : '浏览器轻量版'} /><dl className="environment-list"><div><dt>数据位置</dt><dd>{isAndroid ? '应用私有目录 · SQLite 数据库' : desktop ? '本机 SQLite 数据库' : '浏览器 IndexedDB'}</dd></div><div><dt>本地音乐</dt><dd>{isAndroid ? '可用 · 支持后台播放' : desktop ? '可用' : '客户端专属'}</dd></div><div><dt>云端同步</dt><dd>未启用</dd></div><div><dt>应用版本</dt><dd>{version}</dd></div></dl></section>
     {isAndroid && <section className="settings-pane">
       <SettingHeading icon={<Download />} title="应用更新" description="检查 Android 正式版更新。" />
