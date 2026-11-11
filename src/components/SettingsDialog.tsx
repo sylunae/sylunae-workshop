@@ -1,6 +1,6 @@
 import { isAndroid } from '../platform/environment'
 import { version as appVersion } from '../../package.json'
-import { portableAndroidValue } from '../platform/portableAssets'
+import { portableBackupMedia } from '../platform/portableAssets'
 import { portableNoteSnapshot } from '../data/noteAssets'
 import { useEffect, useRef, useState } from 'react'
 import { BellRing, Check, CheckCircle2, ClipboardPaste, Code2, Copy, Database, Download, ExternalLink, EyeOff, FileWarning, FolderOpen, Globe2, HardDrive, Info, Laptop, Link2, Moon, PackageOpen, Palette, Play, RotateCcw, Settings, ShieldCheck, Sparkles, Sun, Undo2, Upload, UserRound, X } from 'lucide-react'
@@ -125,8 +125,8 @@ function SettingsPanel() {
       const current = await flush()
       if (!current) return
       const item = partialBackupSectionMeta.find((entry) => entry.id === section)!
-      const backup = createPartialBackup(section === 'notes' && !isAndroid ? await portableNoteSnapshot(current) : current, section)
-      const contents = JSON.stringify(isAndroid ? await portableAndroidValue(backup) : backup, null, 2)
+      const backup = createPartialBackup(section === 'notes' && !window.sylunae ? await portableNoteSnapshot(current) : current, section)
+      const contents = JSON.stringify(window.sylunae ? await portableBackupMedia(backup) : backup, null, 2)
       await downloadContents(contents, `siyue-${section}-backup-${new Date().toISOString().slice(0, 10)}.json`, `“${item.label}”局部备份已导出。`)
     } catch { setMessage('导出失败：请确认笔记图片可读取，并重试。') }
   }
@@ -319,7 +319,7 @@ function AboutSettings() {
   useEffect(refreshTools, [desktop])
   return <div className="about-settings">
     <section className="settings-pane"><SettingHeading icon={<ShieldCheck />} title="法律与隐私" description="了解工坊如何处理数据，以及使用应用的相关约定。" /><LegalLinks /></section>
-    <section className="settings-pane"><SettingHeading icon={desktop || isAndroid ? <HardDrive /> : <Globe2 />} title="运行环境" description={isAndroid ? 'Android 客户端' : desktop ? 'Electron 桌面版' : '浏览器轻量版'} /><dl className="environment-list"><div><dt>数据位置</dt><dd>{isAndroid ? '应用私有目录 · SQLite 数据库' : desktop ? '本机 SQLite 数据库' : '浏览器 IndexedDB'}</dd></div><div><dt>本地音乐</dt><dd>{isAndroid ? '可用 · 支持后台播放' : desktop ? '可用' : '客户端专属'}</dd></div><div><dt>云端同步</dt><dd>未启用</dd></div><div><dt>应用版本</dt><dd>{version}</dd></div></dl></section>
+    <section className="settings-pane"><SettingHeading icon={desktop || isAndroid ? <HardDrive /> : <Globe2 />} title="运行环境" description={isAndroid ? 'Android 客户端' : desktop ? 'Electron 桌面版' : '浏览器轻量版'} /><dl className="environment-list"><div><dt>数据位置</dt><dd>{isAndroid ? '应用私有目录 · SQLite 数据库' : desktop ? '本机 SQLite 数据库' : '浏览器 IndexedDB'}</dd></div><div><dt>本地音乐</dt><dd>{isAndroid ? '可用 · 支持后台播放' : desktop ? '可用' : '客户端专属'}</dd></div><div><dt>云端备份</dt><dd>{window.sylunae?.driveBackup ? 'Google Drive · 手动备份与恢复' : '客户端专属'}</dd></div><div><dt>应用版本</dt><dd>{version}</dd></div></dl></section>
     {isAndroid && <section className="settings-pane">
       <SettingHeading icon={<Download />} title="应用更新" description="检查 Android 正式版更新。" />
       <AndroidUpdate />

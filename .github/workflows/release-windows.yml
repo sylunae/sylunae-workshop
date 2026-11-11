@@ -74,6 +74,8 @@ jobs:
       - name: 生成安装包和更新清单
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          MAIN_VITE_GOOGLE_DRIVE_CLIENT_ID: ${{ vars.GOOGLE_DRIVE_DESKTOP_CLIENT_ID }}
+          MAIN_VITE_GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET }}
         run: |
           if (!(Test-Path 'electron/main/appUpdates.ts' -PathType Leaf)) {
             throw '所选提交早于客户端更新功能，请选择包含更新功能的提交。'

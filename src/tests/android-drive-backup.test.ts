@@ -8,6 +8,7 @@ import { driveBackupFormat, driveSectionKeys, type DriveObject } from '../shared
 
 const native = vi.hoisted(() => ({
   latest: vi.fn(), download: vi.fn(), materialize: vi.fn(), space: vi.fn(),
+  status: vi.fn(), objects: vi.fn(), stage: vi.fn(), discard: vi.fn(), inspect: vi.fn(), upload: vi.fn(),
 }))
 vi.mock('@capacitor/core', () => ({
   Capacitor: { convertFileSrc: (uri: string) => uri },
@@ -61,7 +62,6 @@ it('restores an entire version from separate objects and translates its attachme
   }))
   const storage = vi.fn()
   const backup = createAndroidDriveBackup(storage as unknown as NativeCall)
-  if (backup.mode !== 'restore') throw new Error('Wrong platform')
   expect(await backup.latest()).toMatchObject({ id: manifest.id, device: 'desktop', counts: { notes: 1, images: 1, tracks: 1 } })
   const restore = await backup.download(manifest.id, () => {})
   expect(restore.snapshot.notes[0].content.content?.[0].attrs?.src).toBe('sylunae-note-asset:' + picture.sha256)
@@ -77,4 +77,41 @@ it('restores an entire version from separate objects and translates its attachme
   })
   await expect(backup.download(manifest.id, () => {})).rejects.toThrow('摘要校验失败')
   expect(storage).not.toHaveBeenCalled()
+
+  // Re-upload on Android using the media restored from the desktop fixture.
+  vi.stubGlobal('window', { location: { origin: 'https://localhost' } })
+  native.status.mockResolvedValue({ connected: true, account: { id: 'account', label: 'test' } })
+  const sections = new Map<string, Buffer>()
+  const localFiles = new Map([
+    ['note-assets/' + picture.sha256, Buffer.from('picture-bytes')],
+    ['drive-media/' + music.sha256 + '.mp3', Buffer.from('music-bytes')],
+    ['drive-media/' + picture.sha256 + '.png', Buffer.from('picture-bytes')],
+    ['/_capacitor_file_/drive-media/' + picture.sha256 + '.png', Buffer.from('picture-bytes')],
+  ])
+  native.stage.mockImplementation(async ({ token, name, data, first }) => {
+    const path = token + '-' + name
+    const chunk = Buffer.from(data, 'base64')
+    sections.set(path, first ? chunk : Buffer.concat([sections.get(path)!, chunk]))
+    return { path }
+  })
+  native.inspect.mockImplementation(async ({ path }) => {
+    const bytes = localFiles.get(path) ?? sections.get(path)
+    if (!bytes) throw new Error('Missing fixture: ' + path)
+    return { name: path, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), mime: path.startsWith('note-assets/') ? 'image/png' : 'application/octet-stream' }
+  })
+  native.objects.mockResolvedValue({ files: [picture, music].map((entry) => ({ id: entry.id, size: String(entry.size), sha256Checksum: entry.sha256 })) })
+  native.upload.mockImplementation(async ({ sha256 }) => ({ id: 'android-' + sha256 }))
+  native.discard.mockResolvedValue(undefined)
+  storage.mockResolvedValue({ value: [] })
+  const plan = await backup.prepare(restore.snapshot)
+  expect(plan.missing).toEqual([])
+  expect(plan.reuseFiles).toBe(2)
+  const published = await backup.upload(plan.token, () => {})
+  expect(published.reused).toBeGreaterThanOrEqual(2)
+  const upload = native.upload.mock.calls.at(-1)?.[0]
+  expect(upload.manifest).toBe(true)
+  expect(JSON.parse(sections.get(upload.path)!.toString())).toMatchObject({
+    device: 'Android', media: expect.arrayContaining([picture, music]), counts: { notes: 1, tracks: 1, images: 1 },
+  })
+  expect(native.upload.mock.calls.some(([entry]) => entry.sha256 === music.sha256 || entry.sha256 === picture.sha256)).toBe(false)
 })

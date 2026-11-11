@@ -1,22 +1,27 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DriveProgress } from '../../src/shared/driveBackup'
+import type { DriveProgress, DriveWhiteNoise } from '../../src/shared/driveBackup'
 import type { AppSnapshot, AppSnapshotPatch, AppUpdateStatus, ImageScanProgress, MediaToolsProgress, MusicImportProgress, ResourceDownloadProgress, SylunaeAPI } from '../../src/shared/types'
+
+async function withDriveProgress<T>(channel: string, argument: string, listener: (progress: DriveProgress) => void): Promise<T> {
+  const handler = (_event: Electron.IpcRendererEvent, value: DriveProgress) => listener(value)
+  ipcRenderer.on('drive:progress', handler)
+  try { return await ipcRenderer.invoke(channel, argument) }
+  finally { ipcRenderer.removeListener('drive:progress', handler) }
+}
 
 const api: SylunaeAPI = {
   platform: 'electron',
   driveBackup: {
-    mode: 'upload',
     status: () => ipcRenderer.invoke('drive:status'),
     configure: () => ipcRenderer.invoke('drive:configure'),
     connect: () => ipcRenderer.invoke('drive:connect'),
     disconnect: () => ipcRenderer.invoke('drive:disconnect'),
     prepare: () => ipcRenderer.invoke('drive:prepare'),
-    upload: (token) => ipcRenderer.invoke('drive:upload', token),
-    onProgress: (listener) => {
-      const handler = (_event: Electron.IpcRendererEvent, value: DriveProgress) => listener(value)
-      ipcRenderer.on('drive:progress', handler)
-      return () => ipcRenderer.removeListener('drive:progress', handler)
-    },
+    upload: (token, onProgress) => withDriveProgress('drive:upload', token, onProgress),
+    latest: () => ipcRenderer.invoke('drive:latest'),
+    download: (id, onProgress) => withDriveProgress('drive:download', id, onProgress),
+    hasRollback: () => ipcRenderer.invoke('drive:has-rollback'),
+    rollback: () => ipcRenderer.invoke('drive:rollback'),
   },
   updates: process.argv.includes('--sylunae-updates') ? {
     getStatus: () => ipcRenderer.invoke('updates:get-status'),
@@ -52,7 +57,7 @@ const api: SylunaeAPI = {
     getNoteAsset: (id) => ipcRenderer.invoke('storage:get-note-asset', id),
     load: () => ipcRenderer.invoke('storage:load'),
     save: (patch: AppSnapshotPatch) => ipcRenderer.invoke('storage:save', patch),
-    replace: (snapshot: AppSnapshot) => ipcRenderer.invoke('storage:replace', snapshot),
+    replace: (snapshot: AppSnapshot, whiteNoise?: DriveWhiteNoise) => ipcRenderer.invoke('storage:replace', snapshot, whiteNoise),
   },
   music: {
     pick: () => ipcRenderer.invoke('music:pick'),

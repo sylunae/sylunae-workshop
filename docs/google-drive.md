@@ -1,6 +1,6 @@
 # Google Drive 备份与恢复
 
-Windows 上传，Android 恢复。两台设备连接同一个 Google 账号。首次备份上传数据和媒体原件，以后按内容复用已有文件。每份完整备份通过一份清单发布。
+Windows 和 Android 都可以手动上传和恢复。两台设备连接同一个 Google 账号。最后成功发布的备份成为云端最新版，上传时复用云端已有的文件。恢复会替换此设备的本地数据，并保留一次回退机会。
 
 ## 一次性配置
 
@@ -24,6 +24,12 @@ $env:ANDROID_HOME = (Resolve-Path .android-tools/sdk).Path
 
 只有实际安装的构建类型需要配置。正式版签名尚未创建时，先按 [Android 构建说明](android.md) 打包一次，再取 release 的 SHA-1。手机需要可用的 Google Play 服务。
 
+## Windows 发布配置
+
+在 GitHub 仓库的 **Settings → Secrets and variables → Actions** 添加变量 `GOOGLE_DRIVE_DESKTOP_CLIENT_ID` 和 Secret `GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET`，分别填同一项目下 Desktop OAuth JSON 中的 `installed.client_id` 和 `installed.client_secret`。发版流程会把桌面 OAuth 客户端配置写入主进程。用户安装后可以直接连接 Google Drive。已导入的自定义配置继续优先使用。
+
+本机打包可在 `.env.local` 设置 `MAIN_VITE_GOOGLE_DRIVE_CLIENT_ID` 和 `MAIN_VITE_GOOGLE_DRIVE_CLIENT_SECRET`。桌面 OAuth 客户端属于公开客户端。用户授权令牌继续由各自的系统安全存储保存。[Google 桌面 OAuth 说明](https://developers.google.com/identity/protocols/oauth2/native-app)
+
 ## OAuth 公开页面
 
 项目提供以下独立页面，主页页脚与「设置 → 关于 → 法律与隐私」均有入口：
@@ -44,20 +50,21 @@ $env:ANDROID_HOME = (Resolve-Path .android-tools/sdk).Path
 ## 从测试版切换到正式版
 
 1. 从 [GitHub Releases](https://github.com/sylunae/sylunae-workshop/releases) 下载 Windows 安装包和 Android 正式 APK。Android 正式包使用与旧版相同的签名时，可直接覆盖安装。
-2. 在 Windows 正式版导入之前的 Desktop OAuth JSON 并重新连接。开发版和正式版各自保存授权状态，可以复用同一个 OAuth 客户端。
+2. 在 Windows 正式版连接 Google Drive。如果安装包未配置内置客户端，可导入之前的 Desktop OAuth JSON。开发版和正式版各自保存授权状态。
 3. 在原 Google Cloud 项目中为正式包创建 Android 客户端，包名用 `studio.sylunae.workshop`，SHA-1 用正式 APK 的签名值。用同一个 Google 账号连接后，即可查看此前在该项目下上传的备份。OAuth 客户端 JSON 留在本机。
 
 ## 第一次备份与验证
 
 从源码测试时，在 Windows 运行 `pnpm dev:desktop`。手机可安装 `pnpm run package:android:debug` 生成的 APK，调试版和正式版使用各自独立的本地数据。
 
-1. 在电脑的丝月工坊准备一条带图片的笔记、图片库的一张原图和一首音乐。在 **设置 → 数据与备份 → Google Drive 备份**，点 **导入桌面 OAuth 配置**，选择步骤 3 的 JSON，再点 **连接 Google Drive**。在系统浏览器选择测试账号并授权。
+1. 在电脑的丝月工坊准备一条带图片的笔记、图片库的一张原图和一首音乐。在 **设置 → 数据与备份 → Google Drive 备份**，点 **连接 Google Drive**。如果该按钮尚未出现，先点 **导入桌面 OAuth 配置**，选择步骤 3 的 JSON。在系统浏览器选择测试账号并授权。
 2. 在电脑点 **备份到 Google Drive → 开始上传**，等到提示「备份已发布」。如果列出缺失文件，先在工坊重新定位这些文件或移除失效索引。
 3. 在手机准备一条便于辨认的本地测试笔记。在同一设置入口点 **连接 Google Drive**，选择电脑使用的账号。点 **从 Google Drive 恢复**，核对设备、时间和数量，再点 **下载并恢复**。
 4. 手机开启飞行模式，重新打开工坊。确认笔记附件能显示、图片库能打开原图、音乐能播放。可点 **回退本次恢复**，确认手机上原来的测试笔记回来。
 5. 在电脑只修改一条笔记后再次备份。确认上传数量只包含变化的数据文件，原来的音乐和图片应显示为复用。手机重新恢复后能看到修改后的笔记。
-6. 用较大的测试媒体检查中断行为。上传新版本时断网，手机此时仍能查到上一次成功发布的备份。手机下载时断网，原有手机数据仍可使用。恢复网络后重试。
+6. 在 Android 修改一条测试笔记并上传，再在 Windows 恢复。确认笔记显示新内容，并用 Windows 的 **回退本次恢复** 验证本地回退。
+7. 用较大的测试媒体检查中断行为。上传新版本时断网，手机此时仍能查到上一次成功发布的备份。手机下载时断网，原有手机数据仍可使用。恢复网络后重试。
 
-Drive 网页不会显示应用专用空间的文件。云端历史清单和已上传文件暂时保留，手机界面恢复最新发布的版本。备份会复制本地原件，外部图片链接仍然依赖原链接可用。已下载的官方白噪音资源可在手机资源管理中单独下载，自定义白噪音随备份恢复。
+Drive 网页不会显示应用专用空间的文件。云端历史清单和已上传文件暂时保留，两端界面恢复最新发布的版本。备份会复制本地原件，外部图片链接仍然依赖原链接可用。已下载的官方白噪音资源可在手机资源管理中单独下载，自定义白噪音随备份恢复。
 
 Google 官方说明可参见 [创建 OAuth 客户端](https://developers.google.com/workspace/guides/create-credentials)、[应用专用空间](https://developers.google.com/workspace/drive/api/guides/appdata) 和 [测试用户与授权期限](https://support.google.com/cloud/answer/15549945)。

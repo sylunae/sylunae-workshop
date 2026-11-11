@@ -1,14 +1,13 @@
-import type { AppSnapshot } from '../shared/types'
 import { encodeBytes } from './binary'
 
 /** Explicit exports embed managed attachments again, preserving desktop backup compatibility. */
-export async function portableAndroidValue<T>(snapshot: T): Promise<T> {
+export async function portableBackupMedia<T>(snapshot: T): Promise<T> {
   const assets = new Map<string, string>()
   const mediaFields = new Set(['src', 'image', 'cover', 'homeWallpaper', 'characterImage', 'pressSound', 'releaseSound', 'coverImagePath', 'coverPath', 'faviconUrl'])
   const walk = async (value: unknown, field = ''): Promise<unknown> => {
     if (typeof value === 'string') {
       if (!mediaFields.has(field)) return value
-      if (/^\/_capacitor_file_\/.*\/drive-media\/[a-f0-9]{64}\.[a-z0-9]+$/.test(value)) {
+      if (/^(?:\/_capacitor_file_\/.*\/drive-media\/|sylunae-media:\/\/drive\/)[a-f0-9]{64}\.[a-z0-9]+$/.test(value)) {
         if (!assets.has(value)) {
           const response = await fetch(value)
           if (!response.ok) throw new Error('备份媒体无法读取。')
@@ -40,4 +39,3 @@ export async function portableAndroidValue<T>(snapshot: T): Promise<T> {
   }
   return await walk(snapshot) as T
 }
-export const portableAndroidSnapshot = (snapshot: AppSnapshot) => portableAndroidValue(snapshot)

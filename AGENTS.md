@@ -11,7 +11,7 @@
 后续也将继续新增更多方便的小工具。
 
 # 项目架构
-Web、Electron 桌面端与 Capacitor Android 客户端复用 React / Vite 前端和现有设计系统。Android 使用原生 SQLite、应用私有目录和 Media3 后台音乐服务。Google Drive 首版支持 Windows 手动备份和 Android 手动恢复，配置见 `docs/google-drive.md`。暂不开发 iOS。手机界面继续使用响应式布局，平台差异由适配层处理，依赖桌面工具的功能保留明确的平台限制。构建、测试与数据迁移见 `docs/android.md`。
+Web、Electron 桌面端与 Capacitor Android 客户端复用 React / Vite 前端和现有设计系统。Android 使用原生 SQLite、应用私有目录和 Media3 后台音乐服务。Google Drive 支持 Windows 和 Android 手动备份与恢复，配置见 `docs/google-drive.md`。暂不开发 iOS。手机界面继续使用响应式布局，平台差异由适配层处理，依赖桌面工具的功能保留明确的平台限制。构建、测试与数据迁移见 `docs/android.md`。
 
 # 项目风格
 现代化工具软件常见的左侧导航 + 主内容区布局，配色和样式全局统一，极简干净的UI设计，使用流畅。

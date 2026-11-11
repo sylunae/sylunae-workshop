@@ -1,11 +1,12 @@
 import { app, dialog } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { createWriteStream, existsSync } from 'node:fs'
-import { copyFile, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, rename, stat, unlink } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { parseFile } from 'music-metadata'
+import { isWhiteNoiseInDriveRollback, readCustomWhiteNoise, writeCustomWhiteNoise } from './database'
 import { whiteNoiseCatalog } from '../../src/resources/whiteNoiseCatalog'
 import type { ResourceDownloadProgress, ResourceItem, ResourceSummary } from '../../src/shared/types'
 
@@ -23,11 +24,6 @@ interface CustomWhiteNoiseRecord {
   createdAt: string
 }
 
-interface ResourceStateFile {
-  version: 1
-  customWhiteNoise: CustomWhiteNoiseRecord[]
-}
-
 function resourceRoot(): string {
   return join(app.getPath('userData'), 'resources')
 }
@@ -40,32 +36,8 @@ function customWhiteNoiseRoot(): string {
   return join(whiteNoiseRoot(), 'custom')
 }
 
-function statePath(): string {
-  return join(resourceRoot(), 'state.json')
-}
-
 async function ensureDirectories(): Promise<void> {
-  await Promise.all([
-    mkdir(whiteNoiseRoot(), { recursive: true }),
-    mkdir(customWhiteNoiseRoot(), { recursive: true }),
-  ])
-}
-
-async function readState(): Promise<ResourceStateFile> {
-  await ensureDirectories()
-  try {
-    const parsed = JSON.parse(await readFile(statePath(), 'utf8')) as Partial<ResourceStateFile>
-    return { version: 1, customWhiteNoise: Array.isArray(parsed.customWhiteNoise) ? parsed.customWhiteNoise : [] }
-  } catch {
-    return { version: 1, customWhiteNoise: [] }
-  }
-}
-
-async function saveState(state: ResourceStateFile): Promise<void> {
-  await ensureDirectories()
-  const temporary = `${statePath()}.tmp`
-  await writeFile(temporary, JSON.stringify(state, null, 2), 'utf8')
-  await rename(temporary, statePath())
+  await mkdir(customWhiteNoiseRoot(), { recursive: true })
 }
 
 function officialLocalPath(id: string): string {
@@ -122,8 +94,8 @@ function customItem(record: CustomWhiteNoiseRecord): ResourceItem {
 }
 
 export async function listResources(): Promise<ResourceSummary> {
-  const state = await readState()
-  const items = [...whiteNoiseCatalog.map((item) => officialItem(item.id)), ...state.customWhiteNoise.map(customItem)]
+  const customWhiteNoise = readCustomWhiteNoise()
+  const items = [...whiteNoiseCatalog.map((item) => officialItem(item.id)), ...customWhiteNoise.map(customItem)]
   return {
     items,
     installedBytes: items.reduce((sum, item) => sum + item.installedSize, 0),
@@ -204,9 +176,9 @@ export async function importWhiteNoise(): Promise<ResourceItem | null> {
     duration: metadata.format.duration || 0,
     createdAt: new Date().toISOString(),
   }
-  const state = await readState()
-  state.customWhiteNoise.push(record)
-  await saveState(state)
+  const customWhiteNoise = readCustomWhiteNoise()
+  customWhiteNoise.push(record)
+  writeCustomWhiteNoise(customWhiteNoise)
   return customItem(record)
 }
 
@@ -218,12 +190,14 @@ export async function removeResource(id: string): Promise<void> {
     if (existsSync(path)) await unlink(path)
     return
   }
-  const state = await readState()
-  const custom = state.customWhiteNoise.find((item) => item.id === id)
+  const customWhiteNoise = readCustomWhiteNoise()
+  const custom = customWhiteNoise.find((item) => item.id === id)
   if (!custom) throw new Error('资源不存在')
-  if (existsSync(custom.path)) await unlink(custom.path)
-  state.customWhiteNoise = state.customWhiteNoise.filter((item) => item.id !== id)
-  await saveState(state)
+  writeCustomWhiteNoise(customWhiteNoise.filter((item) => item.id !== id))
+  const relativePath = relative(customWhiteNoiseRoot(), custom.path)
+  if (relativePath && !relativePath.startsWith('..') && !isAbsolute(relativePath) && !isWhiteNoiseInDriveRollback(custom.path)) {
+    await unlink(custom.path).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error })
+  }
 }
 
 export async function getResourceAudioPath(id: string): Promise<string> {
@@ -233,12 +207,14 @@ export async function getResourceAudioPath(id: string): Promise<string> {
     if (!item.localPath) throw new Error('请先下载这个资源')
     return item.localPath
   }
-  const state = await readState()
-  const custom = state.customWhiteNoise.find((item) => item.id === id)
+  const customWhiteNoise = readCustomWhiteNoise()
+  const custom = customWhiteNoise.find((item) => item.id === id)
   if (!custom || !existsSync(custom.path)) throw new Error('本地资源不可用')
-  const root = resolve(customWhiteNoiseRoot())
   const localPath = resolve(custom.path)
-  const relativePath = relative(root, localPath)
-  if (relativePath.startsWith('..') || isAbsolute(relativePath)) throw new Error('资源路径无效')
+  const roots = [customWhiteNoiseRoot(), join(app.getPath('userData'), 'drive-media')]
+  if (!roots.some((root) => {
+    const relativePath = relative(root, localPath)
+    return relativePath && !relativePath.startsWith('..') && !isAbsolute(relativePath)
+  })) throw new Error('资源路径无效')
   return localPath
 }

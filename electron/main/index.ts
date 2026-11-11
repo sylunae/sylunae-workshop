@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, protocol, shell } from 'electron'
 import { registerAppUpdates } from './appUpdates'
-import { registerGoogleDriveBackup } from './googleDriveBackup'
+import { driveMediaPath, registerGoogleDriveBackup } from './googleDriveBackup'
+import { driveExtensions, type DriveWhiteNoise } from '../../src/shared/driveBackup'
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
@@ -889,7 +890,7 @@ function registerIpc(): void {
   ipcMain.handle('storage:get-note-asset', (_event, id: string) => getNoteAsset(id))
   ipcMain.handle('storage:load', () => loadSnapshot())
   ipcMain.handle('storage:save', (_event, patch: AppSnapshotPatch) => saveSnapshotPatch(patch))
-  ipcMain.handle('storage:replace', (_event, snapshot: AppSnapshot) => replaceSnapshot(snapshot))
+  ipcMain.handle('storage:replace', (_event, snapshot: AppSnapshot, whiteNoise?: DriveWhiteNoise) => replaceSnapshot(snapshot, whiteNoise))
 
   ipcMain.handle('music:pick', async () => {
     const result = await dialog.showOpenDialog({
@@ -1164,9 +1165,11 @@ app.whenReady().then(() => {
     if (requestOrigin && requestOrigin !== rendererOrigin) return new Response('Forbidden', { status: 403 })
     const url = new URL(request.url)
     const encoded = url.pathname.slice(1)
-    const filePath = Buffer.from(encoded, 'base64url').toString('utf8')
+    const managed = url.hostname === 'drive'
+    const filePath = managed ? driveMediaPath(encoded) : Buffer.from(encoded, 'base64url').toString('utf8')
+    if (!filePath) return new Response('Not found', { status: 404 })
     const extension = extname(filePath).toLowerCase()
-    if (!isIndexedPath(filePath) || !existsSync(filePath) || (!AUDIO_EXTENSIONS.has(extension) && !IMAGE_EXTENSIONS.has(extension))) {
+    if (!existsSync(filePath) || (managed ? !driveExtensions[extension] || extension === '.svg' : !isIndexedPath(filePath) || (!AUDIO_EXTENSIONS.has(extension) && !IMAGE_EXTENSIONS.has(extension)))) {
       return new Response('Not found', { status: 404 })
     }
     if (url.hostname === 'thumbnail') {
@@ -1180,7 +1183,7 @@ app.whenReady().then(() => {
     const headers = new Headers({
       'Accept-Ranges': 'bytes',
       'Access-Control-Allow-Origin': rendererOrigin,
-      'Content-Type': AUDIO_MIME_TYPES[extension] || await imageMimeType(filePath, extension),
+      'Content-Type': managed ? driveExtensions[extension] : AUDIO_MIME_TYPES[extension] || await imageMimeType(filePath, extension),
     })
     const range = request.headers.get('Range')
     if (!range) {

@@ -1,12 +1,21 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
-import { validateBackup } from '../data/backup'
-import { customWhiteNoiseSchema, driveManifestSchema, driveMediaRef, driveSectionKeys, mapDriveSnapshotMedia, type DriveAccount, type DriveBackupAPI, type DriveBackupInfo, type DriveManifest, type DriveMediaTransform, type DriveObject } from '../shared/driveBackup'
+import { restoreDriveSnapshot } from '../data/driveRestore'
+import { splitSnapshot } from '../data/snapshotSections'
+import { decodeBytes, encodeBytes } from './binary'
+import { nativeChunkSize } from './androidStorage'
+import type { AppSnapshot, ResourceItem } from '../shared/types'
+import { describeDriveBackup, driveBackupFormat, driveExtensionForMime, driveExtensions, driveManifestSchema, driveObjects, mapDriveSnapshotMedia, type DriveAccount, type DriveBackupAPI, type DriveManifest, type DriveMediaTransform, type DriveObject, type DriveUploadPlan } from '../shared/driveBackup'
 import type { NativeCall } from './androidStorage'
 
 interface WorkshopDrive {
   status(): Promise<{ configured: boolean; connected: boolean; account?: DriveAccount }>
   connect(): Promise<DriveAccount>
   disconnect(): Promise<void>
+  objects(options: { page?: string }): Promise<{ nextPageToken?: string; files: Array<{ id: string; size?: string; sha256Checksum?: string }> }>
+  stage(options: { token: string; name: string; data: string; first: boolean }): Promise<{ path: string }>
+  discard(options: { token: string }): Promise<void>
+  inspect(options: { path: string }): Promise<{ name: string; size: number; sha256: string; mime: string }>
+  upload(options: { path: string; size: number; sha256: string; manifest?: boolean }): Promise<{ id: string }>
   latest(): Promise<{ id: null } | { id: string; uri: string }>
   download(object: DriveObject): Promise<{ uri: string }>
   materialize(options: { sha256: string; kind: string; extension: string; mime: string }): Promise<{ path: string; uri: string }>
@@ -15,6 +24,92 @@ interface WorkshopDrive {
 
 const native = registerPlugin<WorkshopDrive>('WorkshopDrive')
 
+type Source = Omit<DriveObject, 'id'> & { path: string }
+type Upload = { summary: DriveUploadPlan; sections: Array<{ key: string; source: Source }>; media: Map<string, Source> }
+
+async function remoteObjects() {
+  const objects = new Map<string, { id: string; size: number }>()
+  let page: string | undefined
+  do {
+    const result = await native.objects({ page })
+    for (const file of result.files) if (file.sha256Checksum && file.size !== undefined) objects.set(file.sha256Checksum, { id: file.id, size: Number(file.size) })
+    page = result.nextPageToken
+  } while (page)
+  return objects
+}
+
+async function stage(token: string, name: string, bytes: Uint8Array, mime: string): Promise<Source> {
+  let path = ''
+  for (let start = 0; start < bytes.length; start += nativeChunkSize) {
+    const result = await native.stage({ token, name, data: encodeBytes(bytes.subarray(start, start + nativeChunkSize)), first: start === 0 })
+    path = result.path
+  }
+  const result = await native.inspect({ path })
+  return { path, size: result.size, sha256: result.sha256, mime }
+}
+
+async function prepareUpload(token: string, account: DriveAccount, snapshot: AppSnapshot, run: NativeCall): Promise<Upload> {
+  const cloud = await remoteObjects()
+  const media = new Map<string, Source>()
+  const sources = new Map<string, Promise<Source | undefined>>()
+  const missing = new Set<string>()
+  let index = 0
+  const sourceFor = async (value: string, kind: string): Promise<Source | undefined> => {
+    const data = /^data:((?:image|audio)\/[\w.+-]+);base64,(.+)$/is.exec(value)
+    if (data) return stage(token, 'media' + index++, decodeBytes(data[2]), data[1].toLowerCase())
+    const note = /^sylunae-note-asset:([a-f0-9]{64})$/.exec(value)
+    const local = value.startsWith(window.location.origin + '/_capacitor_file_') ? new URL(value).pathname : value
+    const localUrl = local.startsWith('/_capacitor_file_') || local.startsWith('file://')
+    if (!note && !localUrl && kind !== 'path') {
+      if (/^(?:blob|file|data|sylunae-[^:]+):/i.test(value)) throw new Error('无法读取本地媒体。')
+      return undefined
+    }
+    const path = note ? 'note-assets/' + note[1] : local
+    const info = await native.inspect({ path })
+    if (note && info.sha256 !== note[1]) throw new Error('笔记附件损坏。')
+    const suffix = /\.[a-z0-9]{1,10}$/i.exec(info.name)?.[0].toLowerCase()
+    return { path, size: info.size, sha256: info.sha256, mime: suffix && driveExtensions[suffix] || info.mime }
+  }
+  const transform: DriveMediaTransform = async (value, kind, label) => {
+    try {
+      if (kind !== 'path' && /^\/(?:resources\/fun\/desk-companion|images)\/[\w.-]+$/.test(value)) return value.slice(1)
+      const key = kind + ':' + value
+      let pending = sources.get(key)
+      if (!pending) { pending = sourceFor(value, kind); sources.set(key, pending) }
+      const source = await pending
+      if (!source) return value
+      if (!source.size || (kind === 'note' && !source.mime.startsWith('image/'))) throw new Error('无法读取备份媒体。')
+      const previous = media.get(source.sha256)
+      if (!previous || kind === 'note') media.set(source.sha256, source)
+      const suffix = kind === 'note' ? '' : /\.[a-z0-9]{1,10}$/i.exec(source.path)?.[0].toLowerCase() ?? driveExtensionForMime(source.mime)
+      return 'sylunae-drive:' + kind + ':' + source.sha256 + suffix
+    } catch {
+      missing.add(label)
+      return value
+    }
+  }
+  const portable = await mapDriveSnapshotMedia(snapshot, transform)
+  const { value } = await run<{ value: ResourceItem[] | null }>('record:get', { key: 'resources' })
+  const customWhiteNoise = []
+  for (const item of value ?? []) if (item.origin === 'custom' && item.localPath) {
+    customWhiteNoise.push({ id: item.id, title: item.title, duration: item.duration, size: item.size, localPath: await transform(item.localPath, 'path', item.title) })
+  }
+  const sections = []
+  for (const { key, value } of [...splitSnapshot(portable), { key: 'customWhiteNoise', value: customWhiteNoise }]) {
+    sections.push({ key, source: await stage(token, key, new TextEncoder().encode(JSON.stringify(value)), 'application/json') })
+  }
+  const distinct = new Map([...sections.map(({ source }) => [source.sha256, source] as const), ...media])
+  const uploads = [...distinct.values()].filter((source) => cloud.get(source.sha256)?.size !== source.size)
+  return {
+    sections, media,
+    summary: {
+      token, account, notes: snapshot.notes.length, tracks: snapshot.tracks.length, images: snapshot.imageLibrary.assets.length,
+      uploadFiles: uploads.length, reuseFiles: distinct.size - uploads.length, uploadBytes: uploads.reduce((sum, source) => sum + source.size, 0),
+      missing: [...missing],
+    },
+  }
+}
+
 async function readJson(uri: string): Promise<unknown> {
   const response = await fetch(Capacitor.convertFileSrc(uri), { cache: 'no-store' })
   if (!response.ok) throw new Error('无法读取已校验的备份数据。')
@@ -22,7 +117,12 @@ async function readJson(uri: string): Promise<unknown> {
 }
 
 export function createAndroidDriveBackup(run: NativeCall): DriveBackupAPI {
-  let selected: { id: string; manifest: DriveManifest } | undefined
+  let plan: Upload | undefined
+  const discard = async () => {
+    const token = plan?.summary.token
+    plan = undefined
+    if (token) await native.discard({ token }).catch(() => undefined)
+  }
   let busy = false
   const exclusive = async <T>(work: () => Promise<T>) => {
     if (busy) throw new Error('Google Drive 正在处理另一项操作。')
@@ -31,78 +131,81 @@ export function createAndroidDriveBackup(run: NativeCall): DriveBackupAPI {
     finally { busy = false }
   }
   return {
-    mode: 'restore',
     status: () => native.status(),
-    connect: () => exclusive(async () => { selected = undefined; return native.connect() }),
-    disconnect: () => exclusive(async () => { selected = undefined; await native.disconnect() }),
+    connect: () => exclusive(async () => { await discard(); return native.connect() }),
+    disconnect: () => exclusive(async () => { await discard(); await native.disconnect() }),
     hasRollback: async () => (await run<{ available: boolean }>('storage:hasDriveRollback')).available,
     rollback: () => exclusive(() => run<void>('storage:rollbackDrive')),
-    latest: () => exclusive(async (): Promise<DriveBackupInfo | null> => {
-      selected = undefined
+    prepare: (snapshot) => exclusive(async () => {
+      await discard()
+      const status = await native.status()
+      if (!status.connected || !status.account) throw new Error('请先连接 Google Drive。')
+      const token = crypto.randomUUID()
+      try {
+        plan = await prepareUpload(token, status.account, snapshot, run)
+        return plan.summary
+      } catch (error) {
+        await native.discard({ token }).catch(() => undefined)
+        throw error
+      }
+    }),
+    upload: (token, onProgress) => exclusive(async () => {
+      if (!plan || plan.summary.token !== token || plan.summary.missing.length) throw new Error('请重新检查本次备份。')
+      const { summary, sections, media } = plan
+      const status = await native.status()
+      if (!status.connected || status.account?.id !== summary.account.id) throw new Error('Google Drive 账号已更换，请重新检查备份。')
+      const cloud = await remoteObjects()
+      let completed = 0
+      let uploaded = 0
+      const total = sections.length + media.size
+      const store = async ({ path, size, sha256, mime }: Source): Promise<DriveObject> => {
+        let entry = cloud.get(sha256)
+        if (!entry || entry.size !== size) {
+          onProgress({ message: '正在上传备份文件', completed, total })
+          const { id } = await native.upload({ path, size, sha256 })
+          entry = { id, size }
+          cloud.set(sha256, entry)
+          uploaded++
+        }
+        completed++
+        return { id: entry.id, sha256, size, mime }
+      }
+      const objects: Record<string, DriveObject> = {}
+      for (const { key, source } of sections) objects[key] = await store(source)
+      const assets = []
+      for (const source of media.values()) assets.push(await store(source))
+      const createdAt = new Date().toISOString()
+      const manifest: DriveManifest = driveManifestSchema.parse({
+        format: driveBackupFormat, version: 1, createdAt, device: 'Android',
+        sections: objects, media: assets, counts: { notes: summary.notes, tracks: summary.tracks, images: summary.images },
+      })
+      onProgress({ message: '正在发布最新备份', completed, total })
+      const { path, size, sha256 } = await stage(token, 'manifest', new TextEncoder().encode(JSON.stringify(manifest)), 'application/json')
+      await native.upload({ path, size, sha256, manifest: true })
+      await discard()
+      return { createdAt, uploaded, reused: new Set([...Object.values(objects), ...assets].map(({ id }) => id)).size - uploaded }
+    }),
+    latest: () => exclusive(async () => {
       const item = await native.latest()
-      if (item.id === null) return null
-      const manifest = driveManifestSchema.parse(await readJson(item.uri))
-      selected = { id: item.id, manifest }
-      const { createdAt, device, counts } = manifest
-      const objects = new Map([...Object.values(manifest.sections), ...manifest.media].map((object) => [object.sha256, object]))
-      const bytes = [...objects.values()].reduce((total, item) => total + item.size, 0)
-      return { id: item.id, createdAt, device, counts, bytes }
+      return item.id === null ? null : describeDriveBackup(item.id, driveManifestSchema.parse(await readJson(item.uri)))
     }),
     download: (id, onProgress) => exclusive(async () => {
-      if (!selected || selected.id !== id) throw new Error('请重新检查 Google Drive 备份。')
-      const { manifest } = selected
-      const objects = new Map([...Object.values(manifest.sections), ...manifest.media].map((object) => [object.sha256, object]))
+      const item = await native.latest()
+      if (item.id !== id) throw new Error('云端备份已更新，请重新打开恢复确认。')
+      const manifest = driveManifestSchema.parse(await readJson(item.uri))
+      const entries = [...driveObjects(manifest).values()]
       let needed = 0
       let available = 0
-      const entries = [...objects.values()]
       for (let start = 0; start < entries.length; start += 250) {
         const result = await native.space({ objects: entries.slice(start, start + 250).map(({ sha256, size }) => ({ sha256, size })) })
         needed += result.needed
         available = result.bytes
       }
       if (available < needed) throw new Error('手机可用空间不足，请清理空间后重试。')
-      const downloaded = new Map<string, string>()
-      const materialized = new Map<string, string>()
-      const media = new Map(manifest.media.map((item) => [item.sha256, item]))
-      const download = async (item: DriveObject) => {
-        const existing = downloaded.get(item.sha256)
-        if (existing) return existing
-        onProgress({ message: '正在下载并校验文件', completed: downloaded.size, total: objects.size })
-        const { uri } = await native.download(item)
-        downloaded.set(item.sha256, uri)
-        return uri
-      }
-      const sections: Record<string, unknown> = {}
-      for (const key of driveSectionKeys) sections[key] = await readJson(await download(manifest.sections[key]))
-      const { customWhiteNoise, ...state } = sections
-      const transform: DriveMediaTransform = async (source, expected) => {
-        const ref = driveMediaRef.exec(source)
-        if (!ref) {
-          if (expected === 'path' || /^(?:[a-z][a-z0-9+.-]*:|[\\/])/i.test(source) && !/^https?:\/\//i.test(source)) {
-            throw new Error('备份包含无法恢复的媒体引用。')
-          }
-          return source
-        }
-        if (ref[1] !== expected) throw new Error('备份媒体类型不匹配。')
-        const [, kind, sha256, extension = ''] = ref
-        const object = media.get(sha256)
-        if (!object) throw new Error('备份清单缺少媒体文件。')
-        const existing = materialized.get(source)
-        if (existing) return existing
-        await download(object)
-        const { path, uri } = await native.materialize({ sha256, kind, extension, mime: object.mime })
-        const result = kind === 'note' ? 'sylunae-note-asset:' + sha256 : kind === 'path' ? path : new URL(Capacitor.convertFileSrc(uri)).pathname
-        materialized.set(source, result)
-        return result
-      }
-      const backup = validateBackup({ format: 'siyue-workshop-backup', version: 1, exportedAt: manifest.createdAt, snapshot: state })
-      const snapshot = await mapDriveSnapshotMedia(backup.snapshot, transform)
-      const whiteNoise = customWhiteNoiseSchema.parse(customWhiteNoise)
-      for (const item of whiteNoise) item.localPath = await transform(item.localPath, 'path', item.title)
-      for (const item of manifest.media) await download(item)
-      snapshot.imageLibrary.roots = snapshot.imageLibrary.roots.map((root) => ({ ...root, path: '', missing: true }))
-      onProgress({ message: '文件校验完成，正在应用备份', completed: objects.size, total: objects.size })
-      return { snapshot, whiteNoise }
+      return restoreDriveSnapshot(manifest, async (object) => (await native.download(object)).uri, readJson, async (_file, object, kind, extension) => {
+        const { path, uri } = await native.materialize({ sha256: object.sha256, kind, extension, mime: object.mime })
+        return kind === 'note' ? 'sylunae-note-asset:' + object.sha256 : kind === 'path' ? path : new URL(Capacitor.convertFileSrc(uri)).pathname
+      }, onProgress)
     }),
   }
 }

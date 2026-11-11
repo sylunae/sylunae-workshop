@@ -27,6 +27,9 @@ it('uses the real loopback listener, validates state, exchanges a PKCE code, and
   const realFetch = globalThis.fetch
   try {
     electron.profile = profile
+    vi.stubEnv('MAIN_VITE_GOOGLE_DRIVE_CLIENT_ID', 'bundled.apps.googleusercontent.com')
+    vi.stubEnv('MAIN_VITE_GOOGLE_DRIVE_CLIENT_SECRET', 'bundled-public-client-configuration')
+    expect(await new GoogleDriveAuth().status()).toEqual({ configured: true, connected: false })
     const config = join(profile, 'client.json')
     await writeFile(config, JSON.stringify({
       installed: { client_id: 'fake.apps.googleusercontent.com', client_secret: 'fake-client-secret' },
@@ -51,6 +54,7 @@ it('uses the real loopback listener, validates state, exchanges a PKCE code, and
     const exchange = vi.fn(async (address: string, init: RequestInit) => {
       expect(address).toBe('https://oauth2.googleapis.com/token')
       const body = init.body as URLSearchParams
+      expect(body.get('client_id')).toBe('fake.apps.googleusercontent.com')
       if (body.get('grant_type') === 'authorization_code') {
         expect(body.get('code')).toBe('fake-code')
         expect(body.get('redirect_uri')).toBe(authorization!.searchParams.get('redirect_uri'))
@@ -77,6 +81,7 @@ it('uses the real loopback listener, validates state, exchanges a PKCE code, and
     expect(exchange).toHaveBeenCalledTimes(2)
   } finally {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     await rm(profile, { recursive: true, force: true })
   }
 })

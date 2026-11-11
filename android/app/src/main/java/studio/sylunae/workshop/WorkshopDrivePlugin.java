@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.StatFs;
+import android.util.Base64;
 import androidx.activity.result.IntentSenderRequest;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -18,11 +19,17 @@ import com.google.android.gms.auth.api.identity.ClearTokenRequest;
 import com.google.android.gms.auth.api.identity.Identity;
 import com.google.android.gms.common.api.Scope;
 import com.google.android.gms.tasks.Tasks;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -142,6 +149,137 @@ public class WorkshopDrivePlugin extends Plugin {
 
     @PluginMethod public void download(PluginCall call) {
         run(call, () -> download(call.getString("id"), call.getString("sha256"), call.getData().getLong("size")));
+    }
+
+    @PluginMethod public void objects(PluginCall call) {
+        run(call, () -> {
+            Uri.Builder query = Uri.parse(API + "/files").buildUpon()
+                .appendQueryParameter("spaces", "appDataFolder")
+                .appendQueryParameter("q", "trashed = false and appProperties has { key='sylunae' and value='object-v1' }")
+                .appendQueryParameter("pageSize", "1000")
+                .appendQueryParameter("fields", "nextPageToken,files(id,size,sha256Checksum)");
+            String page = call.getString("page", "");
+            if (!page.isEmpty()) query.appendQueryParameter("pageToken", page);
+            return JSObject.fromJSONObject(WorkshopDriveFiles.json(open(query.build().toString(), ""), 1024 * 1024));
+        });
+    }
+
+    @PluginMethod public void stage(PluginCall call) {
+        run(call, () -> {
+            String path = stagedPath(call);
+            File file = uploadFile(path);
+            File directory = file.getParentFile();
+            if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("无法创建备份暂存目录。");
+            byte[] bytes = Base64.decode(call.getString("data", ""), Base64.DEFAULT);
+            if (bytes.length > 128 * 1024) throw new IOException("备份分块过大。");
+            try (FileOutputStream out = new FileOutputStream(file, !call.getBoolean("first", false))) { out.write(bytes); }
+            return new JSObject().put("path", path);
+        });
+    }
+
+    @PluginMethod public void discard(PluginCall call) {
+        run(call, () -> {
+            File directory = new File(getContext().getCacheDir(), "drive-upload");
+            String prefix = uploadToken(call) + "-";
+            File[] files = directory.listFiles((parent, name) -> name.startsWith(prefix));
+            if (files != null) for (File file : files) if (file.isFile()) file.delete();
+            return new JSObject();
+        });
+    }
+
+    private static String uploadToken(PluginCall call) throws IOException {
+        String token = call.getString("token", "");
+        if (!token.matches("[a-f0-9-]{36}")) throw new IOException("备份任务标识无效。");
+        return token;
+    }
+
+    private static String stagedPath(PluginCall call) throws IOException {
+        String name = call.getString("name", "");
+        if (!name.matches("[A-Za-z0-9]{1,48}")) throw new IOException("备份文件标识无效。");
+        return "drive-upload/" + uploadToken(call) + "-" + name;
+    }
+
+    private File uploadFile(String path) throws IOException {
+        if (path.matches("drive-upload/[a-f0-9-]{36}-[A-Za-z0-9]{1,48}")) return new File(getContext().getCacheDir(), path);
+        if (path.startsWith("/_capacitor_file_") || path.startsWith("file://")) {
+            String local = path.startsWith("file://") ? Uri.parse(path).getPath() : Uri.decode(path.substring("/_capacitor_file_".length()));
+            if (local == null) throw new IOException("本地媒体路径无效。");
+            File file = new File(local).getCanonicalFile();
+            if (!file.getPath().startsWith(getContext().getFilesDir().getCanonicalPath() + File.separator)) throw new IOException("本地媒体路径无效。");
+            return file;
+        }
+        return WorkshopFilesPlugin.privateFile(getContext(), path);
+    }
+
+    @PluginMethod public void inspect(PluginCall call) {
+        run(call, () -> {
+            File file = uploadFile(call.getString("path", ""));
+            if (!file.isFile()) throw new IOException("无法读取备份文件。");
+            long size = file.length();
+            String hash = WorkshopFilesPlugin.hashFile(file);
+            if (file.length() != size) throw new IOException("文件正在修改，请重新检查备份。");
+            String mime = "application/octet-stream";
+            File sidecar = new File(file.getPath() + ".mime");
+            if (file.getParentFile().getName().equals("note-assets") && sidecar.isFile()) {
+                mime = new String(WorkshopFilesPlugin.readBytes(sidecar, 256), StandardCharsets.UTF_8);
+            }
+            return new JSObject().put("sha256", hash).put("size", size).put("mime", mime).put("name", file.getName());
+        });
+    }
+
+    @PluginMethod public void upload(PluginCall call) {
+        run(call, () -> {
+            File file = uploadFile(call.getString("path", ""));
+            long size = call.getData().getLong("size");
+            String hash = call.getString("sha256", "");
+            boolean manifest = call.getBoolean("manifest", false);
+            if (!file.isFile() || size <= 0 || size != file.length() || !hash.matches("[a-f0-9]{64}")) {
+                throw new IOException("备份文件已变化，请重新检查备份。");
+            }
+            String access = token();
+            JSONObject metadata = new JSONObject()
+                .put("name", manifest ? "sylunae-backup-" + hash + ".json" : hash)
+                .put("parents", new JSONArray().put("appDataFolder"))
+                .put("appProperties", new JSONObject().put("sylunae", manifest ? "manifest-v1" : "object-v1"));
+            HttpURLConnection initial = connection("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,size,sha256Checksum", access, "");
+            String location;
+            try {
+                byte[] data = metadata.toString().getBytes(StandardCharsets.UTF_8);
+                initial.setRequestMethod("POST");
+                initial.setDoOutput(true);
+                initial.setFixedLengthStreamingMode(data.length);
+                initial.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                initial.setRequestProperty("X-Upload-Content-Type", "application/octet-stream");
+                initial.setRequestProperty("X-Upload-Content-Length", Long.toString(size));
+                try (OutputStream out = initial.getOutputStream()) { out.write(data); }
+                int status = initial.getResponseCode();
+                if (status == 401) accessToken = null;
+                if (status < 200 || status >= 300) throw new IOException("Google Drive 上传失败（HTTP " + status + "）。");
+                location = initial.getHeaderField("Location");
+            } finally { initial.disconnect(); }
+            if (location == null) throw new IOException("Google Drive 未返回上传地址。");
+            URL session = new URL(location);
+            if (!"https".equals(session.getProtocol()) || !"www.googleapis.com".equals(session.getHost()) || session.getPort() != -1) {
+                throw new IOException("Google Drive 返回了无效的上传地址。");
+            }
+            HttpURLConnection request = connection(location, access, "");
+            JSONObject uploaded;
+            try {
+                request.setRequestMethod("PUT");
+                request.setDoOutput(true);
+                request.setFixedLengthStreamingMode(size);
+                request.setRequestProperty("Content-Type", "application/octet-stream");
+                try (FileInputStream input = new FileInputStream(file); OutputStream out = request.getOutputStream()) {
+                    WorkshopFilesPlugin.copy(input, out);
+                }
+                if (request.getResponseCode() == 401) accessToken = null;
+                uploaded = WorkshopDriveFiles.json(request, 256 * 1024);
+            } finally { request.disconnect(); }
+            if (!hash.equals(uploaded.optString("sha256Checksum")) || size != uploaded.optLong("size", -1)) {
+                throw new IOException("云端文件校验失败，请重新检查备份。");
+            }
+            return new JSObject().put("id", uploaded.getString("id"));
+        });
     }
 
     private JSObject download(String id, String hash, long size) throws Exception {

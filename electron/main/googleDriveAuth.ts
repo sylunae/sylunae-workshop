@@ -13,6 +13,14 @@ const clientSchema = z.object({
 const storedSchema = z.object({ client: clientSchema, refresh: z.string().optional() })
 type Credentials = z.infer<typeof storedSchema>
 
+function defaultCredentials(): Credentials | undefined {
+  const client = clientSchema.safeParse({
+    client_id: import.meta.env.MAIN_VITE_GOOGLE_DRIVE_CLIENT_ID,
+    client_secret: import.meta.env.MAIN_VITE_GOOGLE_DRIVE_CLIENT_SECRET,
+  })
+  return client.success ? { client: client.data } : undefined
+}
+
 export async function readGoogleJson(response: Response): Promise<unknown> {
   if (!response.ok) {
     let reason = ''
@@ -36,7 +44,7 @@ export class GoogleDriveAuth {
     try {
       return storedSchema.parse(JSON.parse(safeStorage.decryptString(await readFile(credentialPath()))))
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return defaultCredentials()
       throw new Error('无法读取本机 Google Drive 授权，请重新导入桌面 OAuth 配置。')
     }
   }

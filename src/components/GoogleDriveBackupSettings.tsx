@@ -20,7 +20,7 @@ function dateText(date: string) { return new Date(date).toLocaleString() }
 
 export function GoogleDriveBackupSettings({ api }: { api: DriveBackupAPI }) {
   const { flush, replace, rollbackDrive } = useAppStore()
-  const [configured, setConfigured] = useState(api.mode === 'restore')
+  const [configured, setConfigured] = useState(!api.configure)
   const [connected, setConnected] = useState(false)
   const [account, setAccount] = useState<DriveAccount>()
   const [busy, setBusy] = useState(false)
@@ -41,11 +41,10 @@ export function GoogleDriveBackupSettings({ api }: { api: DriveBackupAPI }) {
         setAccount(status.account)
       }
     }).catch(() => { if (active) setMessage({ text: '无法读取 Google Drive 连接状态。', error: true }) })
-    if (api.mode === 'restore') void api.hasRollback().then((available) => {
+    void api.hasRollback().then((available) => {
       if (active) setRollbackAvailable(available)
     }).catch(() => { /* The restore itself can still be used. */ })
-    const unsubscribe = api.mode === 'upload' ? api.onProgress(setProgress) : undefined
-    return () => { active = false; unsubscribe?.() }
+    return () => { active = false }
   }, [api])
 
   const run = async (work: () => Promise<void>, showInDialog = false) => {
@@ -59,9 +58,10 @@ export function GoogleDriveBackupSettings({ api }: { api: DriveBackupAPI }) {
   }
 
   const configure = () => {
-    if (api.mode !== 'upload') return
+    const configureClient = api.configure
+    if (!configureClient) return
     void run(async () => {
-      if (await api.configure()) {
+      if (await configureClient()) {
         setConfigured(true)
         setConnected(false)
         setAccount(undefined)
@@ -85,25 +85,27 @@ export function GoogleDriveBackupSettings({ api }: { api: DriveBackupAPI }) {
     setMessage({ text: '已断开此设备的连接。' })
   })
 
-  const checkBackup = () => void run(async () => {
-    if (api.mode === 'upload') {
-      setMissing([])
-      setProgress({ message: '正在检查本地文件和 Drive 中已有的内容', completed: 0, total: 0 })
-      await flush()
-      const plan = await api.prepare()
-      setAccount(plan.account)
-      if (plan.missing.length) {
-        setMissing(plan.missing)
-        setMessage({ text: '以下本地文件无法读取。请补齐或移除对应的失效引用后重试。', error: true })
-      } else if (plan.account.availableBytes !== undefined && plan.uploadBytes > plan.account.availableBytes) {
-        setMessage({ text: 'Google Drive 可用空间不足。', error: true })
-      } else setUpload(plan)
-    } else {
-      setProgress({ message: '正在读取最新云端备份', completed: 0, total: 0 })
-      const backup = await api.latest()
-      if (backup) setRestore(backup)
-      else setMessage({ text: '此账号还没有云端备份。请先在桌面端上传。' })
-    }
+  const checkUpload = () => void run(async () => {
+    setMissing([])
+    setProgress({ message: '正在检查本地文件和 Drive 中已有的内容', completed: 0, total: 0 })
+    const snapshot = await flush()
+    if (!snapshot) throw new Error('本地数据尚未加载。')
+    const plan = await api.prepare(snapshot)
+    setAccount(plan.account)
+    if (plan.missing.length) {
+      setMissing(plan.missing)
+      setMessage({ text: '以下本地文件无法读取。请补齐或移除对应的失效引用后重试。', error: true })
+    } else if (plan.account.availableBytes !== undefined && plan.uploadBytes > plan.account.availableBytes) {
+      setMessage({ text: 'Google Drive 可用空间不足。', error: true })
+    } else setUpload(plan)
+  })
+
+  const checkRestore = () => void run(async () => {
+    setMissing([])
+    setProgress({ message: '正在读取最新云端备份', completed: 0, total: 0 })
+    const backup = await api.latest()
+    if (backup) setRestore(backup)
+    else setMessage({ text: '此账号还没有云端备份。请先在一台设备上上传。' })
   })
 
   const progressView = progress && <div role="status">
@@ -113,47 +115,47 @@ export function GoogleDriveBackupSettings({ api }: { api: DriveBackupAPI }) {
   return <section className="settings-pane google-drive-settings">
     <div className="settings-title">
       <span><Cloud aria-hidden="true" size={20} /></span>
-      <div><h3>Google Drive 备份</h3><p>{api.mode === 'upload'
-        ? '备份工坊数据、音乐和图片原件。重复备份会复用云端已有文件。'
-        : '连接桌面端使用的 Google 账号，将最新一份备份恢复到手机。'}</p></div>
+      <div><h3>Google Drive 备份</h3><p>手动上传此设备的数据，或从云端恢复最新备份。</p></div>
     </div>
     {account && <p className="settings-note">当前账号 · <span className="user-content">{account.label}</span></p>}
     <div className="settings-actions">
-      {api.mode === 'upload' && <Button variant="outline" disabled={busy} onClick={configure}>{configured ? '更换桌面 OAuth 配置' : '导入桌面 OAuth 配置'}</Button>}
+      {api.configure && <Button variant="outline" disabled={busy} onClick={configure}>{configured ? '更换桌面 OAuth 配置' : '导入桌面 OAuth 配置'}</Button>}
       {configured && <Button variant="outline" disabled={busy} onClick={connected ? disconnect : connect}>{connected ? '断开连接' : '连接 Google Drive'}</Button>}
-      {connected && <Button disabled={busy} onClick={checkBackup}>
-        {api.mode === 'upload' ? <><Upload size={16} />备份到 Google Drive</> : <><Download size={16} />从 Google Drive 恢复</>}
-      </Button>}
+      {connected && <>
+        <Button disabled={busy} onClick={checkUpload}><Upload size={16} />备份到 Google Drive</Button>
+        <Button variant="outline" disabled={busy} onClick={checkRestore}><Download size={16} />从 Google Drive 恢复</Button>
+      </>}
       {rollbackAvailable && <Button variant="outline" disabled={busy} onClick={() => setConfirmRollback(true)}>回退本次恢复</Button>}
     </div>
     {!upload && !restore && progressView}
     {message && <p className={'notice ' + (message.error ? 'error' : 'success')} role={message.error ? 'alert' : 'status'}>{message.text}</p>}
     {missing.length > 0 && <ul className="google-drive-missing">{missing.map((item) => <li className="user-content" key={item}>{item}</li>)}</ul>}
     <ConfirmDialog open={Boolean(upload)} onOpenChange={(open) => { if (!open) setUpload(undefined) }}
-      title="备份到 Google Drive？" confirmLabel="开始上传"
+      title="替换云端最新备份？" confirmLabel="开始上传" destructive icon={<FileWarning />}
       description={upload && <>
         <span className="backup-preview">{upload.account.label}{'\n'}{countText(upload)}</span>
+        <span className="backup-preview">上传完成后，此设备的数据将成为云端最新版。其他设备尚未上传的修改不会合并进来。</span>
         <span className="backup-preview">本次新增 {upload.uploadFiles} 个文件（{sizeText(upload.uploadBytes)}），复用 {upload.reuseFiles} 个云端文件。</span>
         {progressView}
       </>}
       onConfirm={() => run(async () => {
-        if (api.mode !== 'upload' || !upload) return
-        const result = await api.upload(upload.token)
+        if (!upload) return
+        const result = await api.upload(upload.token, setProgress)
         setMessage({ text: '备份已发布。上传 ' + result.uploaded + ' 个文件，复用 ' + result.reused + ' 个文件。' })
       }, true)} />
     <ConfirmDialog open={Boolean(restore)} onOpenChange={(open) => { if (!open) setRestore(undefined) }}
-      title="用云端备份替换手机数据？" confirmLabel="下载并恢复" destructive icon={<FileWarning />}
+      title="用云端备份替换此设备的数据？" confirmLabel="下载并恢复" destructive icon={<FileWarning />}
       description={restore && <>
         <span className="backup-preview">{dateText(restore.createdAt)} · {restore.device}{'\n'}{countText(restore.counts)} · {sizeText(restore.bytes)}</span>
-        <span className="backup-preview">下载校验完成后才会替换手机上的数据。恢复前的本地版本可以回退一次。</span>
+        <span className="backup-preview">此设备尚未上传的修改会被覆盖。恢复前的本地版本可以回退一次。</span>
         {progressView}
       </>}
       onConfirm={() => run(async () => {
-        if (api.mode !== 'restore' || !restore) return
+        if (!restore) return
         const result = await api.download(restore.id, setProgress)
         await replace(result.snapshot, result.whiteNoise)
         setRollbackAvailable(true)
-        setMessage({ text: '备份已恢复到手机。音乐和图片可离线使用。' })
+        setMessage({ text: '备份已恢复到此设备。' })
       }, true)} />
     <ConfirmDialog open={confirmRollback} onOpenChange={setConfirmRollback}
       title="回到云端恢复之前？" confirmLabel="回退本地数据" destructive icon={<FileWarning />}

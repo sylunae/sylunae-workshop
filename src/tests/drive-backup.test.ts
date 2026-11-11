@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -12,9 +12,10 @@ import type { AppSnapshot } from '../shared/types'
 const mock = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, token?: string) => Promise<unknown>>(),
   load: vi.fn(),
+  directory: '',
 }))
-vi.mock('electron', () => ({ ipcMain: { handle: (key: string, fn: never) => mock.handlers.set(key, fn) } }))
-vi.mock('../../electron/main/database', () => ({ loadSnapshot: mock.load, getNoteAsset: () => null }))
+vi.mock('electron', () => ({ app: { getPath: () => mock.directory }, ipcMain: { handle: (key: string, fn: never) => mock.handlers.set(key, fn) } }))
+vi.mock('../../electron/main/database', () => ({ loadSnapshot: mock.load, getNoteAsset: () => null, putNoteAsset: (bytes: Buffer) => hash(bytes) }))
 vi.mock('../../electron/main/resourceManager', () => ({ listResources: async () => ({ items: [] }) }))
 vi.mock('../../electron/main/googleDriveAuth', () => ({
   GoogleDriveAuth: class { async token() { return 'test-token' } },
@@ -42,6 +43,10 @@ function setupDrive() {
     expect(new Headers(options.headers).get('Authorization')).toBe('Bearer test-token')
     const address = new URL(url)
     if (address.pathname.endsWith('/about')) return Response.json({ user: { permissionId: 'account-id', emailAddress: 'test@example.com' } })
+    if (address.searchParams.get('alt') === 'media') {
+      const file = saved.get(address.pathname.split('/').at(-1)!)
+      return file ? new Response(new Uint8Array(file.bytes)) : new Response(null, { status: 404 })
+    }
     const mode = address.searchParams.get('uploadType')
     if (mode === 'multipart') {
       const body = Buffer.from(options.body as Uint8Array)
@@ -70,8 +75,10 @@ function setupDrive() {
         ? record(session.role, session.bytes)
         : new Response(null, { status: 308, headers: { Range: 'bytes=0-' + range[2] } })
     }
+    const manifest = address.searchParams.get('orderBy') === 'createdTime desc'
+    const records = [...saved].filter(([, value]) => value.role === (manifest ? 'manifest-v1' : 'object-v1'))
     return Response.json({
-      files: [...saved].filter(([, value]) => value.role === 'object-v1').map(([id, { bytes }]) => ({
+      files: (manifest ? records.slice(-1) : records).map(([id, { bytes }]) => ({
         id, size: String(bytes.length), sha256Checksum: hash(bytes),
       })),
     })
@@ -85,6 +92,7 @@ function setupDrive() {
 
 it('uploads separate verified objects, reuses media on a note edit, and keeps the last manifest on a failed upload', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'sylunae-drive-test-'))
+  mock.directory = directory
   try {
     const image = join(directory, 'test.png')
     const audio = join(directory, 'test.mp3')
@@ -92,8 +100,10 @@ it('uploads separate verified objects, reuses media on a note edit, and keeps th
     const music = Buffer.alloc(9 * 1024 * 1024, 97)
     await writeFile(audio, music)
     const snapshot = createDefaultSnapshot()
-    snapshot.tracks = [{ id: 'track', path: audio, title: '歌曲', cover: '' }] as AppSnapshot['tracks']
-    snapshot.imageLibrary.assets = [{ id: 'image', path: image, name: '图片' }] as AppSnapshot['imageLibrary']['assets']
+    const dates = { createdAt: snapshot.settings.updatedAt, updatedAt: snapshot.settings.updatedAt }
+    snapshot.tracks = [{ id: 'track', path: audio, title: '歌曲', cover: '', artist: '', album: '', albumArtist: '', albumId: null, duration: 1, missing: false, ...dates }]
+    snapshot.imageLibrary.assets = [{ id: 'image', path: image, name: '图片', rootId: null, collectionIds: [], relativePath: 'test.png', extension: 'png',
+      size: 14, mtimeMs: 0, width: 1, height: 1, aspectType: 'square', identity: 'image', hash: hash(Buffer.from('original image')), missing: false, metadata: {}, ...dates }]
     snapshot.notes = [{ id: 'note', title: '笔记', folderId: null, tags: [], pinned: false, deletedAt: null,
       createdAt: snapshot.settings.updatedAt, updatedAt: snapshot.settings.updatedAt, content: { type: 'doc', content: [
       { type: 'image', attrs: { src: 'data:image/png;base64,' + Buffer.from('original image').toString('base64') } },
@@ -110,6 +120,7 @@ it('uploads separate verified objects, reuses media on a note edit, and keeps th
     expect(drive.saved.get(manifest.media.find((item) => item.sha256 === hash(music))!.id)!.bytes.equals(music)).toBe(true)
     const notes = JSON.parse(drive.saved.get(manifest.sections.notes.id)!.bytes.toString())
     expect(notes[0].content.content[0].attrs.src).toBe('sylunae-drive:note:' + hash(Buffer.from('original image')))
+    const firstPreview = await call('latest') as { id: string }
 
     snapshot.notes[0].title = '改过的笔记'
     const next = await call('prepare') as { token: string; uploadFiles: number }
@@ -117,6 +128,12 @@ it('uploads separate verified objects, reuses media on a note edit, and keeps th
     expect(await call('upload', next.token)).toMatchObject({ uploaded: 1 })
     expect(drive.manifests()[1].media).toEqual(manifest.media)
     expect(drive.manifests()[1].sections.notes.id).not.toBe(manifest.sections.notes.id)
+    await expect(call('download', firstPreview.id)).rejects.toThrow('云端备份已更新')
+    const latest = await call('latest') as { id: string }
+    const restored = await call('download', latest.id) as { snapshot: AppSnapshot }
+    expect(restored.snapshot.notes[0].title).toBe('改过的笔记')
+    expect((await readFile(restored.snapshot.tracks[0].path)).equals(music)).toBe(true)
+    expect(await readFile(restored.snapshot.imageLibrary.assets[0].path, 'utf8')).toBe('original image')
 
     await writeFile(audio, 'new music')
     const failed = await call('prepare') as { token: string }

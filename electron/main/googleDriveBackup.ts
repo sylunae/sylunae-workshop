@@ -1,13 +1,14 @@
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rename, stat, unlink } from 'node:fs/promises'
 import { hostname } from 'node:os'
-import { extname, isAbsolute } from 'node:path'
+import { extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { splitSnapshot } from '../../src/data/snapshotSections'
-import { driveBackupFormat, driveManifestSchema, mapDriveSnapshotMedia, type DriveAccount, type DriveManifest, type DriveProgress, type DriveUploadPlan } from '../../src/shared/driveBackup'
-import { getNoteAsset, loadSnapshot } from './database'
+import { describeDriveBackup, driveBackupFormat, driveExtensionForMime, driveExtensions, driveManifestSchema, mapDriveSnapshotMedia, type DriveAccount, type DriveManifest, type DriveObject, type DriveProgress, type DriveUploadPlan } from '../../src/shared/driveBackup'
+import { restoreDriveSnapshot } from '../../src/data/driveRestore'
+import { getNoteAsset, hasDriveRollback, loadSnapshot, putNoteAsset, rollbackDriveSnapshot } from './database'
 import { listResources } from './resourceManager'
 import { GoogleDriveAuth } from './googleDriveAuth'
 import { bufferHash, GoogleDriveFiles, type UploadSource } from './googleDriveFiles'
@@ -19,13 +20,9 @@ type Prepared = {
   media: Map<string, ObjectSource>
 }
 
-const extensions: Record<string, string> = {
-  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp',
-  '.gif': 'image/gif', '.bmp': 'image/bmp', '.avif': 'image/avif', '.svg': 'image/svg+xml',
-  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.wav': 'audio/wav',
-  '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/ogg', '.flac': 'audio/flac',
+export function driveMediaPath(name: string): string | undefined {
+  if (/^[a-f0-9]{64}(?:\.[a-z0-9]{1,10})?$/.test(name)) return join(app.getPath('userData'), 'drive-media', name)
 }
-const extensionForMime = (mime: string) => Object.keys(extensions).find((extension) => extensions[extension] === mime) ?? '.bin'
 
 function bufferObject(source: Buffer, mime: string): ObjectSource {
   return { source, mime, sha256: bufferHash(source), size: source.length }
@@ -38,7 +35,7 @@ async function fileObject(path: string): Promise<ObjectSource> {
   for await (const chunk of createReadStream(path)) hash.update(chunk)
   const after = await stat(path)
   if (before.size !== after.size || before.mtimeMs !== after.mtimeMs) throw new Error('文件正在修改')
-  return { source: path, mime: extensions[extname(path).toLowerCase()] ?? 'application/octet-stream', sha256: hash.digest('hex'), size: before.size }
+  return { source: path, mime: driveExtensions[extname(path).toLowerCase()] ?? 'application/octet-stream', sha256: hash.digest('hex'), size: before.size }
 }
 
 async function prepare(account: DriveAccount, existing: Awaited<ReturnType<GoogleDriveFiles['objects']>>): Promise<Prepared> {
@@ -78,6 +75,7 @@ async function prepare(account: DriveAccount, existing: Awaited<ReturnType<Googl
       if (source.startsWith('file://')) path = fileURLToPath(source)
       const mediaUrl = /^sylunae-media:\/\/(?:image|audio)\/([A-Za-z0-9_-]+)$/.exec(source)
       if (mediaUrl) path = Buffer.from(mediaUrl[1], 'base64url').toString()
+      if (source.startsWith('sylunae-media://drive/')) path = driveMediaPath(source.slice('sylunae-media://drive/'.length)) ?? source
       const object = embedded
         ? bufferObject(Buffer.from(embedded[2], 'base64'), embedded[1].toLowerCase())
         : note ? storedNote(note[1]) : isAbsolute(path) ? await readPath(path) : undefined
@@ -88,7 +86,7 @@ async function prepare(account: DriveAccount, existing: Awaited<ReturnType<Googl
       if (kind === 'note' && !object.mime.startsWith('image/')) throw new Error('不支持的笔记图片')
       media.set(object.sha256, object)
       const ext = extname(path).toLowerCase()
-      const suffix = kind === 'note' ? '' : isAbsolute(path) && /^\.[a-z0-9]{1,10}$/.test(ext) ? ext : extensionForMime(object.mime)
+      const suffix = kind === 'note' ? '' : isAbsolute(path) && /^\.[a-z0-9]{1,10}$/.test(ext) ? ext : driveExtensionForMime(object.mime)
       return 'sylunae-drive:' + kind + ':' + object.sha256 + suffix
     } catch {
       missing.add(label + (source.length < 400 && isAbsolute(source) ? ' · ' + source : ''))
@@ -114,6 +112,8 @@ function storedNote(id: string) {
 export function registerGoogleDriveBackup() {
   const auth = new GoogleDriveAuth()
   const drive = new GoogleDriveFiles((force) => auth.token(force))
+  const download = (object: DriveObject) => drive.download(object, join(app.getPath('userData'), 'drive-objects', object.sha256))
+  const readJson = async (path: string): Promise<unknown> => JSON.parse(await readFile(path, 'utf8'))
   let plan: Prepared | undefined
   let busy = false
   const exclusive = <T>(action: () => Promise<T>) => async () => {
@@ -126,6 +126,30 @@ export function registerGoogleDriveBackup() {
   ipcMain.handle('drive:configure', exclusive(async () => { plan = undefined; return auth.configure() }))
   ipcMain.handle('drive:connect', exclusive(async () => { plan = undefined; await auth.connect(); return drive.account() }))
   ipcMain.handle('drive:disconnect', exclusive(async () => { plan = undefined; await auth.disconnect() }))
+  ipcMain.handle('drive:has-rollback', () => hasDriveRollback())
+  ipcMain.handle('drive:rollback', exclusive(async () => rollbackDriveSnapshot()))
+  ipcMain.handle('drive:latest', exclusive(async () => {
+    const item = await drive.latest()
+    return item ? describeDriveBackup(item.id, driveManifestSchema.parse(await readJson(await download(item)))) : null
+  }))
+  ipcMain.handle('drive:download', (event, id: unknown) => exclusive(async () => {
+    const item = await drive.latest()
+    if (!item || item.id !== id) throw new Error('云端备份已更新，请重新打开恢复确认。')
+    const manifest = driveManifestSchema.parse(await readJson(await download(item)))
+    return restoreDriveSnapshot(manifest, download, readJson, async (file, object, kind, extension) => {
+      if (kind === 'note') return 'sylunae-note-asset:' + putNoteAsset(await readFile(file), object.mime)
+      if (kind === 'inline' && object.mime === 'image/svg+xml') return 'data:image/svg+xml;base64,' + (await readFile(file)).toString('base64')
+      const name = object.sha256 + (extension || driveExtensionForMime(object.mime))
+      const target = driveMediaPath(name)!
+      await mkdir(join(app.getPath('userData'), 'drive-media'), { recursive: true })
+      const partial = target + '.' + randomUUID() + '.part'
+      try {
+        await copyFile(file, partial)
+        await rename(partial, target)
+      } finally { await unlink(partial).catch(() => undefined) }
+      return kind === 'path' ? target : 'sylunae-media://drive/' + name
+    }, (progress) => { if (!event.sender.isDestroyed()) event.sender.send('drive:progress', progress) })
+  })())
   ipcMain.handle('drive:prepare', exclusive(async () => {
     plan = undefined
     const account = await drive.account()

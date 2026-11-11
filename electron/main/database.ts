@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import { existsSync, renameSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync } from 'node:fs'
+import type { DriveWhiteNoise } from '../../src/shared/driveBackup'
 import { join } from 'node:path'
 import { createDefaultSnapshot } from '../../src/shared/defaults'
 import type { Note, AppSnapshot } from '../../src/shared/types'
@@ -152,10 +153,63 @@ export function saveSnapshotPatch(patch: AppSnapshotPatch): void {
   save()
 }
 
-export function replaceSnapshot(snapshot: AppSnapshot): void {
+type CustomWhiteNoiseRecord = Omit<DriveWhiteNoise[number], 'localPath'> & { path: string; createdAt: string }
+
+function driveState() {
+  const db = getDatabase()
+  db.exec('CREATE TABLE IF NOT EXISTS drive_state (id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
+  return db
+}
+
+export function readCustomWhiteNoise(): CustomWhiteNoiseRecord[] {
+  const stored = driveState().prepare("SELECT payload FROM drive_state WHERE id='whiteNoise'").get() as { payload: string } | undefined
+  if (stored) return JSON.parse(stored.payload)
+  try {
+    const legacy = JSON.parse(readFileSync(join(app.getPath('userData'), 'resources', 'state.json'), 'utf8'))
+    return Array.isArray(legacy.customWhiteNoise) ? legacy.customWhiteNoise : []
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+}
+
+export function writeCustomWhiteNoise(items: CustomWhiteNoiseRecord[]): void {
+  driveState().prepare("INSERT OR REPLACE INTO drive_state VALUES ('whiteNoise', ?)").run(JSON.stringify(items))
+}
+
+export function hasDriveRollback(): boolean {
+  return Boolean(driveState().prepare("SELECT 1 FROM drive_state WHERE id='rollback'").get())
+}
+
+export function isWhiteNoiseInDriveRollback(path: string): boolean {
+  const stored = driveState().prepare("SELECT payload FROM drive_state WHERE id='rollback'").get() as { payload: string } | undefined
+  if (!stored) return false
+  const previous = JSON.parse(stored.payload) as { whiteNoise: CustomWhiteNoiseRecord[] }
+  return previous.whiteNoise.some((item) => item.path === path)
+}
+
+export function rollbackDriveSnapshot(): void {
+  const db = driveState()
+  db.transaction(() => {
+    const previous = db.prepare("SELECT payload FROM drive_state WHERE id='rollback'").get() as { payload: string } | undefined
+    if (!previous) throw new Error('没有可回退的本地备份。')
+    const { snapshot, whiteNoise } = JSON.parse(previous.payload)
+    replaceSnapshot(snapshot)
+    writeCustomWhiteNoise(whiteNoise)
+    db.prepare("DELETE FROM drive_state WHERE id='rollback'").run()
+  })()
+}
+
+export function replaceSnapshot(snapshot: AppSnapshot, whiteNoise?: DriveWhiteNoise): void {
   const db = getDatabase()
   const insert = db.prepare('INSERT INTO app_state_sections(section, payload, updated_at) VALUES (?, ?, ?)')
   const replace = db.transaction(() => {
+    if (whiteNoise !== undefined) {
+      const previous = { snapshot: loadSnapshot(), whiteNoise: readCustomWhiteNoise() }
+      driveState().prepare("INSERT OR REPLACE INTO drive_state VALUES ('rollback', ?)").run(JSON.stringify(previous))
+      const createdAt = new Date().toISOString()
+      writeCustomWhiteNoise(whiteNoise.map(({ localPath, ...item }) => ({ ...item, path: localPath, createdAt })))
+    }
     db.prepare('DELETE FROM notes').run()
     const putNote = db.prepare('INSERT INTO notes(id, payload) VALUES (?, ?)')
     for (const note of snapshot.notes) putNote.run(note.id, JSON.stringify(note))

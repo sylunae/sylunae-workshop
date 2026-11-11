@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { open } from 'node:fs/promises'
+import { createReadStream, createWriteStream } from 'node:fs'
+import { mkdir, open, rename, stat, unlink } from 'node:fs/promises'
+import { dirname } from 'node:path'
+import { Readable, Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { z } from 'zod'
-import { driveFileId, driveHash, type DriveAccount } from '../../src/shared/driveBackup'
+import { driveFileId, driveHash, type DriveAccount, type DriveObject } from '../../src/shared/driveBackup'
 import { readGoogleJson } from './googleDriveAuth'
 
 const filesApi = 'https://www.googleapis.com/drive/v3/files'
@@ -63,6 +67,57 @@ export class GoogleDriveFiles {
       query.set('pageToken', page.nextPageToken)
     } while (true)
     return results
+  }
+
+  async latest(): Promise<DriveObject | null> {
+    const query = new URLSearchParams({
+      spaces: 'appDataFolder', pageSize: '1', orderBy: 'createdTime desc',
+      q: "trashed = false and appProperties has { key='sylunae' and value='manifest-v1' }",
+      fields: 'nextPageToken,files(' + objectFields + ')',
+    })
+    do {
+      const page = z.object({ nextPageToken: z.string().optional(), files: z.array(fileSchema) })
+        .parse(await readGoogleJson(await this.request(filesApi + '?' + query)))
+      const file = page.files[0]
+      if (file) {
+        const size = Number(file.size)
+        if (!file.sha256Checksum || !Number.isSafeInteger(size) || size < 0 || size > 16 * 1024 * 1024) throw new Error('云端备份清单无效。')
+        return { id: file.id, size, sha256: file.sha256Checksum, mime: 'application/json' }
+      }
+      if (!page.nextPageToken) return null
+      query.set('pageToken', page.nextPageToken)
+    } while (true)
+  }
+
+  async download(object: DriveObject, destination: string): Promise<string> {
+    const { id, sha256, size } = object
+    const details = await stat(destination).catch(() => undefined)
+    if (details?.isFile() && details.size === size) {
+      const hash = createHash('sha256')
+      for await (const chunk of createReadStream(destination)) hash.update(chunk)
+      if (hash.digest('hex') === sha256) return destination
+    }
+    await mkdir(dirname(destination), { recursive: true })
+    const response = await this.request(filesApi + '/' + id + '?alt=media')
+    if (!response.ok) await readGoogleJson(response)
+    if (!response.body) throw new Error('Google Drive 返回了空文件。')
+    const partial = destination + '.' + randomUUID() + '.part'
+    const hash = createHash('sha256')
+    let received = 0
+    const verify = new Transform({
+      transform(bytes: Buffer, _encoding, done) {
+        received += bytes.length
+        if (received > size) return done(new Error('云端文件大小不匹配。'))
+        hash.update(bytes)
+        done(null, bytes)
+      },
+    })
+    try {
+      await pipeline(Readable.from(response.body), verify, createWriteStream(partial))
+      if (received !== size || hash.digest('hex') !== sha256) throw new Error('云端文件校验失败。')
+      await rename(partial, destination)
+      return destination
+    } finally { await unlink(partial).catch(() => undefined) }
   }
 
   async upload(name: string, role: 'object-v1' | 'manifest-v1', source: UploadSource, size: number, sha256: string) {

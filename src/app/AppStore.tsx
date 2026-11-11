@@ -159,7 +159,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const rollbackDrive = useCallback(() => replaceWith(async () => {
     const drive = window.sylunae?.driveBackup
-    if (drive?.mode !== 'restore') throw new Error('当前设备没有云端恢复记录。')
+    if (!drive) throw new Error('当前设备没有云端恢复记录。')
     await drive.rollback()
     return repository.load()
   }, true), [replaceWith])

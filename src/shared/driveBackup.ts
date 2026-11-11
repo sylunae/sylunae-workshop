@@ -67,19 +67,32 @@ type DriveConnection = {
   connect: () => Promise<DriveAccount>
   disconnect: () => Promise<void>
 }
-export type DriveBackupAPI = DriveConnection & ({
-  mode: 'upload'
-  configure: () => Promise<boolean>
-  prepare: () => Promise<DriveUploadPlan>
-  upload: (token: string) => Promise<DriveUploadResult>
-  onProgress: (listener: (progress: DriveProgress) => void) => () => void
-} | {
-  mode: 'restore'
+export type DriveBackupAPI = DriveConnection & {
+  configure?: () => Promise<boolean>
+  prepare: (snapshot: AppSnapshot) => Promise<DriveUploadPlan>
+  upload: (token: string, onProgress: (progress: DriveProgress) => void) => Promise<DriveUploadResult>
   latest: () => Promise<DriveBackupInfo | null>
   download: (id: string, onProgress: (progress: DriveProgress) => void) => Promise<{ snapshot: AppSnapshot; whiteNoise: DriveWhiteNoise }>
   hasRollback: () => Promise<boolean>
   rollback: () => Promise<void>
-})
+}
+
+export const driveExtensions: Record<string, string> = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp',
+  '.gif': 'image/gif', '.bmp': 'image/bmp', '.avif': 'image/avif', '.svg': 'image/svg+xml',
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/ogg', '.flac': 'audio/flac',
+}
+export const driveExtensionForMime = (mime: string) => Object.keys(driveExtensions).find((extension) => driveExtensions[extension] === mime) ?? '.bin'
+
+export function driveObjects(manifest: DriveManifest) {
+  return new Map([...Object.values(manifest.sections), ...manifest.media].map((object) => [object.sha256, object]))
+}
+
+export function describeDriveBackup(id: string, manifest: DriveManifest): DriveBackupInfo {
+  const { createdAt, device, counts } = manifest
+  return { id, createdAt, device, counts, bytes: [...driveObjects(manifest).values()].reduce((total, item) => total + item.size, 0) }
+}
 
 /** Media fields are explicit so note text and arbitrary user metadata stay untouched. */
 export async function mapDriveSnapshotMedia(snapshot: AppSnapshot, map: DriveMediaTransform): Promise<AppSnapshot> {
