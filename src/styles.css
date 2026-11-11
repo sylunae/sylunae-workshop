@@ -302,8 +302,8 @@ input, textarea, select { color: var(--text); }
 .sidebar nav .nav-children button:hover, .sidebar nav .nav-children button.active { color: var(--accent-deep); }
 .sidebar nav .nav-children button.active { background: color-mix(in srgb, var(--surface) 70%, transparent); box-shadow: none; }
 .sidebar nav .nav-children button.active::before { left: 31px; width: 4px; height: 4px; border-radius: 50%; }
-.sidebar .desktop-download-card { width: 100%; height: auto; min-height: 64px; margin: auto 0 20px; padding: 10px 11px; display: flex; align-items: center; gap: 9px; overflow: visible; border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line)); border-radius: 13px; background: linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--sidebar-bg) 72%, var(--surface))); color: var(--accent-deep); text-align: left; white-space: normal; box-shadow: 0 6px 16px color-mix(in srgb, var(--brand) 11%, transparent); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
-.sidebar .desktop-download-card:hover { border-color: color-mix(in srgb, var(--brand) 58%, var(--line)); background: linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 82%, var(--surface)), color-mix(in srgb, var(--sidebar-bg) 58%, var(--surface))); box-shadow: 0 9px 20px color-mix(in srgb, var(--brand) 18%, transparent); color: var(--accent-deep); transform: translateY(-1px); }
+.sidebar .download-card { width: 100%; height: auto; min-height: 64px; margin: auto 0 20px; padding: 10px 11px; display: flex; align-items: center; gap: 9px; overflow: visible; border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line)); border-radius: 13px; background: linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--sidebar-bg) 72%, var(--surface))); color: var(--accent-deep); text-align: left; white-space: normal; box-shadow: 0 6px 16px color-mix(in srgb, var(--brand) 11%, transparent); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
+.sidebar .download-card:hover { border-color: color-mix(in srgb, var(--brand) 58%, var(--line)); background: linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 82%, var(--surface)), color-mix(in srgb, var(--sidebar-bg) 58%, var(--surface))); box-shadow: 0 9px 20px color-mix(in srgb, var(--brand) 18%, transparent); color: var(--accent-deep); transform: translateY(-1px); }
 .download-card-icon { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 10px; background: var(--brand); color: var(--primary-foreground); }
 .download-card-copy { min-width: 0; flex: 1; }
 .download-card-copy strong, .download-card-copy small { display: block; white-space: nowrap; }
@@ -2234,7 +2234,9 @@ input[type='range'] { height: 3px; accent-color: var(--brand); }
   .sidebar.collapsed .sidebar-now-playing .music-wave { width: 34px; height: 34px; flex-basis: 34px; display: flex; }
   .sidebar.collapsed .now-playing-copy { display: block; }
   .sidebar.collapsed .nav-children { display: block; }
-  .sidebar .desktop-download-card { display: none; }
+  .sidebar nav .mobile-download-card { min-height: 52px; padding: 8px 11px; }
+  .sidebar.collapsed .mobile-download-card .download-card-icon { display: grid; }
+  .mobile-download-card .download-card-copy strong { font-size: 14px; }
   .sidebar-resize-handle { display: none; }
   .sidebar-backdrop {
     display: block;

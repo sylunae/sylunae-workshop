@@ -13,7 +13,13 @@ const tools: Array<{ id: ToolId; label: string; icon: typeof Library }> = [
   { id: 'tools', label: '工具箱', icon: Boxes },
 ]
 
-const releasesApi = 'https://api.github.com/repos/pandorava7/sylunae-workshop/releases/latest'
+const releasesApi = 'https://api.github.com/repos/sylunae/sylunae-workshop/releases'
+const releasesPage = 'https://github.com/sylunae/sylunae-workshop/releases'
+
+type GitHubRelease = {
+  prerelease: boolean
+  assets: Array<{ name: string; browser_download_url: string }>
+}
 
 function openExternal(url: string, target = '_blank') {
   if (window.sylunae) {
@@ -24,16 +30,40 @@ function openExternal(url: string, target = '_blank') {
 }
 
 function downloadDesktopApp() {
-  void fetch(releasesApi, { headers: { Accept: 'application/vnd.github+json' } })
+  void fetch(`${releasesApi}/latest`, { headers: { Accept: 'application/vnd.github+json' } })
     .then(async (response) => {
       if (!response.ok) throw new Error('未找到已发布的安装包')
-      const release = await response.json() as { assets?: Array<{ name: string; browser_download_url: string }> }
+      const release = await response.json() as GitHubRelease
       const installer = release.assets?.find((asset) => /-Setup\.exe$/i.test(asset.name))
       if (!installer) throw new Error('未找到 Windows 安装包')
       return installer.browser_download_url
     })
     .then((url) => openExternal(url, '_self'))
-    .catch(() => openExternal('https://github.com/pandorava7/sylunae-workshop/releases/latest'))
+    .catch(() => openExternal(`${releasesPage}/latest`))
+}
+
+async function findAndroidApk() {
+  const pageSize = 30
+  for (let page = 1; ; page += 1) {
+    const response = await fetch(`${releasesApi}?per_page=${pageSize}&page=${page}`, {
+      headers: { Accept: 'application/vnd.github+json' },
+    })
+    if (!response.ok) throw new Error('无法获取 GitHub 发布列表')
+
+    const releases = await response.json() as GitHubRelease[]
+    for (const release of releases) {
+      if (release.prerelease) continue
+      const apk = release.assets.find((asset) => /^Sylunae-Workshop-.+-Android\.apk$/i.test(asset.name))
+      if (apk) return apk.browser_download_url
+    }
+    if (releases.length < pageSize) return releasesPage
+  }
+}
+
+function downloadAndroidApp() {
+  void findAndroidApk()
+    .catch(() => releasesPage)
+    .then((url) => openExternal(url, '_self'))
 }
 
 export function Sidebar({ active, taskView, collectionView, musicSection, musicView, collapsed, width, mobileOpen, settingsOpen, funFeaturesOpen, nowPlaying, nowPlayingAmbient, onSelect, onSelectTaskView, onSelectCollectionView, onSelectMusicSection, onSelectMusicView, onOpenSettings, onOpenFunFeatures, onResize, onOpen, onClose }: {
@@ -155,11 +185,15 @@ export function Sidebar({ active, taskView, collectionView, musicSection, musicV
             </div>
           </div>
         })}
-        {!window.sylunae && <button className="desktop-download-card" onClick={downloadDesktopApp} title="下载桌面端安装包">
+        {!window.sylunae && (isMobile ? <button className="download-card mobile-download-card" onClick={downloadAndroidApp} aria-label="下载 Android APK">
+          <span className="download-card-icon"><Download size={18} strokeWidth={1.8} /></span>
+          <span className="download-card-copy"><strong>下载 Android APK</strong></span>
+          <ChevronRight className="download-card-arrow" size={16} strokeWidth={1.8} />
+        </button> : <button className="download-card desktop-download-card" onClick={downloadDesktopApp} title="下载桌面端安装包">
           <span className="download-card-icon"><Download size={18} strokeWidth={1.8} /></span>
           <span className="download-card-copy"><strong>桌面端安装包</strong><small>下载最新 Windows 版本</small></span>
           <ChevronRight className="download-card-arrow" size={16} strokeWidth={1.8} />
-        </button>}
+        </button>)}
       </nav>
       <div className="sidebar-footer">
         {collapsed ? <DropdownMenu>
