@@ -80,6 +80,10 @@ jobs:
           if (!(Test-Path 'electron/main/appUpdates.ts' -PathType Leaf)) {
             throw '所选提交早于客户端更新功能，请选择包含更新功能的提交。'
           }
+          if ($env:MAIN_VITE_GOOGLE_DRIVE_CLIENT_ID -cnotmatch '^[\w.-]+\.apps\.googleusercontent\.com$' -or
+              [string]::IsNullOrWhiteSpace($env:MAIN_VITE_GOOGLE_DRIVE_CLIENT_SECRET)) {
+            throw '请为 Windows 发版设置有效的 GOOGLE_DRIVE_DESKTOP_CLIENT_ID 和 GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET。'
+          }
           npm pkg set "version=$env:RELEASE_VERSION"
           if ($LASTEXITCODE -ne 0) { throw '无法设置构建版本。' }
           pnpm package:win

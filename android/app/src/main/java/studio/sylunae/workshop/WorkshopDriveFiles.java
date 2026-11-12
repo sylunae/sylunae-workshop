@@ -31,6 +31,10 @@ final class WorkshopDriveFiles {
     }
 
     static File download(Context context, String hash, long size, OpenDownload request) throws Exception {
+        return download(context, hash, size, request, () -> {});
+    }
+
+    static File download(Context context, String hash, long size, OpenDownload request, Runnable onNetwork) throws Exception {
         validateHash(hash);
         if (size < 0) throw new IOException("云端文件大小无效。");
         File result = WorkshopFilesPlugin.privateFile(context, "drive-objects/" + hash);
@@ -42,6 +46,7 @@ final class WorkshopDriveFiles {
             if (matches(partial, hash, size)) { commit(partial, result); return result; }
             offset = 0;
         }
+        onNetwork.run();
         HttpURLConnection connection = request.open(offset == 0 ? "" : "bytes=" + offset + "-");
         try {
             requireSuccess(connection);

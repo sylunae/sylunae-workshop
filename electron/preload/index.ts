@@ -2,23 +2,37 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { DriveProgress, DriveWhiteNoise } from '../../src/shared/driveBackup'
 import type { AppSnapshot, AppSnapshotPatch, AppUpdateStatus, ImageScanProgress, MediaToolsProgress, MusicImportProgress, ResourceDownloadProgress, SylunaeAPI } from '../../src/shared/types'
 
-async function withDriveProgress<T>(channel: string, argument: string, listener: (progress: DriveProgress) => void): Promise<T> {
+async function withDriveProgress<T>(channel: string, argument: string, listener: (progress: DriveProgress) => void, options?: unknown): Promise<T> {
   const handler = (_event: Electron.IpcRendererEvent, value: DriveProgress) => listener(value)
   ipcRenderer.on('drive:progress', handler)
-  try { return await ipcRenderer.invoke(channel, argument) }
+  try { return await ipcRenderer.invoke(channel, argument, options) }
   finally { ipcRenderer.removeListener('drive:progress', handler) }
 }
 
 const api: SylunaeAPI = {
   platform: 'electron',
   driveBackup: {
+    notebook: {
+      latest: () => ipcRenderer.invoke('drive:notebook-latest'),
+      revision: (id) => ipcRenderer.invoke('drive:notebook-revision', id),
+      legacy: (id) => ipcRenderer.invoke('drive:notebook-legacy', id),
+      read: (object) => ipcRenderer.invoke('drive:notebook-read', object),
+      put: (bytes, mime) => ipcRenderer.invoke('drive:notebook-put', bytes, mime),
+      publish: (manifest, expected) => ipcRenderer.invoke('drive:notebook-publish', manifest, expected),
+    },
+    importDevelopmentClient: process.argv.includes('--sylunae-development')
+      ? () => ipcRenderer.invoke('drive:import-development-client')
+      : undefined,
     status: () => ipcRenderer.invoke('drive:status'),
-    configure: () => ipcRenderer.invoke('drive:configure'),
+    account: () => ipcRenderer.invoke('drive:account'),
     connect: () => ipcRenderer.invoke('drive:connect'),
+    cancelConnect: () => ipcRenderer.invoke('drive:cancel-connect'),
     disconnect: () => ipcRenderer.invoke('drive:disconnect'),
-    prepare: () => ipcRenderer.invoke('drive:prepare'),
-    upload: (token, onProgress) => withDriveProgress('drive:upload', token, onProgress),
+    prepare: (snapshot, whiteNoise) => ipcRenderer.invoke('drive:prepare', snapshot, whiteNoise),
+    upload: (token, onProgress, guard) => withDriveProgress('drive:upload', token, onProgress, guard),
     latest: () => ipcRenderer.invoke('drive:latest'),
+    revision: (id) => ipcRenderer.invoke('drive:revision', id),
+    previewRestore: () => ipcRenderer.invoke('drive:preview-restore'),
     download: (id, onProgress) => withDriveProgress('drive:download', id, onProgress),
     hasRollback: () => ipcRenderer.invoke('drive:has-rollback'),
     rollback: () => ipcRenderer.invoke('drive:rollback'),
@@ -119,6 +133,13 @@ const api: SylunaeAPI = {
     importFile: () => ipcRenderer.invoke('backup:import'),
   },
   system: {
+    onBeforeClose: (listener) => {
+      const handler = () => {
+        void listener().catch(() => undefined).finally(() => ipcRenderer.send('system:close-ready'))
+      }
+      ipcRenderer.on('system:before-close', handler)
+      return () => ipcRenderer.removeListener('system:before-close', handler)
+    },
     themeReady: () => ipcRenderer.send('system:theme-ready'),
     getTheme: () => ipcRenderer.invoke('system:get-theme'),
     openExternal: (url) => ipcRenderer.invoke('system:open-external', url),

@@ -5,6 +5,7 @@ import type { ManagedResourceDirectory, ResourceDownloadProgress, ResourceItem, 
 import { ConfirmDialog } from './ConfirmDialog'
 import { Button } from './ui/button'
 import { Progress } from './ui/progress'
+import { editDriveResources } from '../app/driveLocalState'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
@@ -39,7 +40,7 @@ export function ResourceSettings() {
     setBusyId(item.id)
     setError('')
     try {
-      await window.sylunae.resources.download(item.id)
+      await editDriveResources(() => window.sylunae!.resources.download(item.id))
       refresh()
       broadcastChange()
     } catch (cause) {
@@ -52,7 +53,7 @@ export function ResourceSettings() {
     setBusyId('import')
     setError('')
     try {
-      const item = await window.sylunae.resources.importWhiteNoise()
+      const item = await editDriveResources(() => window.sylunae!.resources.importWhiteNoise())
       if (item) { refresh(); broadcastChange() }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '无法添加这个音频。')
@@ -64,7 +65,7 @@ export function ResourceSettings() {
     setBusyId(removeTarget.id)
     setError('')
     try {
-      await window.sylunae.resources.remove(removeTarget.id)
+      await editDriveResources(() => window.sylunae!.resources.remove(removeTarget.id))
       setRemoveTarget(null)
       refresh()
       broadcastChange()

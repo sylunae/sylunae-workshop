@@ -20,6 +20,8 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { useAppStore } from "../app/AppStore";
+import { workspaceHref, type WorkspaceView } from "../app/workspaceRoutes";
+import { WorkspaceLink } from "../components/WorkspaceLink";
 import type { ClipboardSnippet, LauncherLink } from "../shared/types";
 import { newId, nowIso } from "../utils";
 import { Button } from "../components/ui/button";
@@ -48,7 +50,7 @@ import { AudioEditor } from "../components/AudioEditor";
 import { ImageProcessor } from "../components/ImageProcessor";
 import { FormatConverter } from "../components/FormatConverter";
 
-type ToolView = "home" | "clipboard" | "launcher" | "image" | "audio" | "birthdays" | "conversion" | "music-toolbox";
+type ToolView = WorkspaceView<"tools">;
 type ClipboardSort = "recent" | "frequent";
 
 const tempoAnalyzerUrl = "https://tuanziai.com/audio-tools/tempo-analyze";
@@ -88,23 +90,16 @@ const toolCards = [
 ];
 
 export function ToolsPage({
-  initialView = "home",
+  view,
+  onViewChange,
 }: {
-  initialView?: ToolView;
+  view: ToolView;
+  onViewChange: (view: ToolView) => void;
 }) {
-  const [view, setView] = usePersistentState<ToolView>("navigation.toolsView", initialView);
   const pageRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    if (initialView !== "home") setView(initialView);
-  }, [initialView, setView]);
-  useEffect(() => {
-    // A removed tool may still be selected in persisted navigation.
-    if (view !== "home" && !toolCards.some((tool) => tool.id === view)) {
-      setView("home");
-      return;
-    }
     pageRef.current?.scrollTo({ top: 0 });
-  }, [view, setView]);
+  }, [view]);
   const showMusicToolbox = view === "music-toolbox";
   return (
     <section ref={pageRef} className={showMusicToolbox ? "page tools-page music-toolbox-page" : "page tools-page"}>
@@ -116,9 +111,9 @@ export function ToolsPage({
             {view === "home" ? (
               "轻量、顺手，并且只在需要时出现"
             ) : (
-              <button className="back-link" onClick={() => setView("home")}>
+              <WorkspaceLink className="back-link" href={workspaceHref("tools", "home")} onNavigate={() => onViewChange("home")}>
                 ← 返回全部工具
-              </button>
+              </WorkspaceLink>
             )}
           </p>
         </div>
@@ -139,10 +134,11 @@ export function ToolsPage({
         <>
           <div className="tool-card-grid">
             {toolCards.map(({ id, title, description, icon: Icon, accent }) => (
-              <button
+              <WorkspaceLink
                 key={id}
                 className="tool-entry-card"
-                onClick={() => setView(id)}
+                href={workspaceHref("tools", id)}
+                onNavigate={() => onViewChange(id)}
               >
                 <span className={`tool-entry-icon ${accent}`}>
                   <Icon size={23} />
@@ -152,7 +148,7 @@ export function ToolsPage({
                 <span className="tool-entry-action">
                   打开工具 <span>→</span>
                 </span>
-              </button>
+              </WorkspaceLink>
             ))}
           </div>
         </>

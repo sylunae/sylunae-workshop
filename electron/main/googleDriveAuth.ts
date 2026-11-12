@@ -41,11 +41,14 @@ export class GoogleDriveAuth {
   private access: { token: string; expiresAt: number } | undefined
 
   private async load(): Promise<Credentials | undefined> {
+    const bundled = defaultCredentials()
     try {
-      return storedSchema.parse(JSON.parse(safeStorage.decryptString(await readFile(credentialPath()))))
+      const stored = storedSchema.parse(JSON.parse(safeStorage.decryptString(await readFile(credentialPath()))))
+      // Retain existing authorizations and their original Drive app data access.
+      return stored.refresh ? stored : bundled ?? (app.isPackaged === false ? stored : undefined)
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return defaultCredentials()
-      throw new Error('无法读取本机 Google Drive 授权，请重新导入桌面 OAuth 配置。')
+      if (bundled || (error as NodeJS.ErrnoException).code === 'ENOENT') return bundled
+      throw new Error('无法读取本机 Google Drive 授权。')
     }
   }
 
@@ -58,26 +61,27 @@ export class GoogleDriveAuth {
     } finally { await unlink(temporary).catch(() => undefined) }
   }
 
-  async configure(): Promise<boolean> {
-    const selected = await dialog.showOpenDialog({
-      title: '选择 Google Cloud 下载的 Desktop OAuth 客户端 JSON',
-      properties: ['openFile'],
-      filters: [{ name: 'Google OAuth 客户端', extensions: ['json'] }],
-    })
-    if (selected.canceled) return false
-    let client
-    try { client = clientSchema.parse(JSON.parse(await readFile(selected.filePaths[0], 'utf8')).installed) }
-    catch { throw new Error('请选择 Google Cloud 下载的「桌面应用」OAuth 客户端 JSON。') }
-    await this.save({ client })
-    this.access = undefined
-    return true
-  }
-
   async status() {
     try {
       const credentials = await this.load()
       return { configured: Boolean(credentials), connected: Boolean(credentials?.refresh) }
     } catch { return { configured: false, connected: false } }
+  }
+
+  async importDevelopmentClient(): Promise<boolean> {
+    if (app.isPackaged) throw new Error('此功能仅适用于桌面开发版。')
+    const selected = await dialog.showOpenDialog({
+      title: '选择 Google Cloud 下载的桌面 OAuth 客户端 JSON',
+      properties: ['openFile'],
+      filters: [{ name: 'Google OAuth 客户端', extensions: ['json'] }],
+    })
+    if (selected.canceled) return false
+    let client: Credentials['client']
+    try { client = clientSchema.parse(JSON.parse(await readFile(selected.filePaths[0], 'utf8')).installed) }
+    catch { throw new Error('请选择 Google Cloud 下载的「桌面应用」OAuth 客户端 JSON。') }
+    await this.save({ client })
+    this.access = undefined
+    return true
   }
 
   async disconnect() {
@@ -86,11 +90,12 @@ export class GoogleDriveAuth {
     this.access = undefined
   }
 
-  private async exchange(client: Credentials['client'], parameters: Record<string, string>) {
+  private async exchange(client: Credentials['client'], parameters: Record<string, string>, signal?: AbortSignal) {
+    const timeout = AbortSignal.timeout(30_000)
     const response = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       body: new URLSearchParams({ ...client, ...parameters }),
-      signal: AbortSignal.timeout(30_000),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     })
     return z.object({
       access_token: z.string().min(1), expires_in: z.number().positive(), refresh_token: z.string().optional(),
@@ -107,22 +112,24 @@ export class GoogleDriveAuth {
     return this.access.token
   }
 
-  async connect() {
+  async connect(signal?: AbortSignal) {
     const credentials = await this.load()
-    if (!credentials) throw new Error('请先导入桌面 OAuth 配置。')
+    if (!credentials) throw new Error('此版本暂不支持连接 Google Drive。')
     const verifier = randomBytes(48).toString('base64url')
     const state = randomBytes(32).toString('base64url')
-    const { code, redirectUri } = await waitForGoogleCode(credentials.client.client_id, state, verifier)
+    const { code, redirectUri } = await waitForGoogleCode(credentials.client.client_id, state, verifier, signal)
     const result = await this.exchange(credentials.client, {
       grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: verifier,
-    })
+    }, signal)
+    signal?.throwIfAborted()
     if (!result.refresh_token) throw new Error('Google 未返回续期凭据，请重新连接账号。')
     await this.save({ ...credentials, refresh: result.refresh_token })
     this.access = { token: result.access_token, expiresAt: Date.now() + result.expires_in * 1000 }
   }
 }
 
-async function waitForGoogleCode(clientId: string, state: string, verifier: string) {
+async function waitForGoogleCode(clientId: string, state: string, verifier: string, signal?: AbortSignal) {
+  signal?.throwIfAborted()
   let redirectUri = ''
   let finish: (code: string) => void
   let fail: (error: Error) => void
@@ -148,7 +155,10 @@ async function waitForGoogleCode(clientId: string, state: string, verifier: stri
   })
   server.on('error', fail!)
   const timeout = setTimeout(() => fail(new Error('Google 授权超时，请重试。')), 180_000)
+  const abort = () => fail(signal!.reason)
+  signal?.addEventListener('abort', abort, { once: true })
   try {
+    signal?.throwIfAborted()
     const address = server.address()
     if (!address || typeof address === 'string') throw new Error('无法启动 Google 授权回调。')
     redirectUri = 'http://127.0.0.1:' + address.port + '/google-drive'
@@ -158,9 +168,11 @@ async function waitForGoogleCode(clientId: string, state: string, verifier: stri
       access_type: 'offline', prompt: 'select_account consent',
       code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
     }).toString()
-    const [, code] = await Promise.all([shell.openExternal(authorize.toString()), result])
+    void shell.openExternal(authorize.toString()).catch(fail!)
+    const code = await result
     return { code, redirectUri }
   } finally {
+    signal?.removeEventListener('abort', abort)
     clearTimeout(timeout)
     server.close()
     server.closeAllConnections()

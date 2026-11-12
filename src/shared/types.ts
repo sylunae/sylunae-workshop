@@ -665,6 +665,7 @@ export interface SylunaeAPI {
     importFile: () => Promise<string | null>
   }
   system: {
+    onBeforeClose?: (listener: () => Promise<void>) => () => void
     setTheme?: (theme: 'light' | 'dark', background: string) => Promise<void>
     themeReady: () => void
     getTheme: () => Promise<'light' | 'dark'>

@@ -9,22 +9,25 @@ export const driveHash = /^[a-f0-9]{64}$/
 export const driveFileId = /^[A-Za-z0-9_-]{1,256}$/
 export const driveMediaRef = /^sylunae-drive:(path|inline|note):([a-f0-9]{64})(\.[a-z0-9]{1,10})?$/
 
-const objectSchema = z.object({
+export const driveObjectSchema = z.object({
   id: z.string().regex(driveFileId),
   sha256: z.string().regex(driveHash),
   size: z.number().int().nonnegative(),
   mime: z.string().regex(/^[\w.+-]+\/[\w.+-]+$/),
 })
+const ancestorWindow = 256
 
-export type DriveObject = z.infer<typeof objectSchema>
+export type DriveObject = z.infer<typeof driveObjectSchema>
 
 export const driveManifestSchema = z.object({
   format: z.literal(driveBackupFormat),
   version: z.literal(1),
   createdAt: z.iso.datetime(),
   device: z.string(),
-  sections: z.record(z.enum(driveSectionKeys), objectSchema),
-  media: z.array(objectSchema),
+  ancestors: z.array(z.string().regex(driveFileId)).max(ancestorWindow).optional(),
+  writeId: z.uuid().optional(),
+  sections: z.record(z.enum(driveSectionKeys), driveObjectSchema),
+  media: z.array(driveObjectSchema),
   counts: z.object({
     notes: z.number().int().nonnegative(),
     tracks: z.number().int().nonnegative(),
@@ -37,10 +40,16 @@ export const driveManifestSchema = z.object({
 })
 
 export type DriveManifest = z.infer<typeof driveManifestSchema>
-export type DriveBackupInfo = Pick<DriveManifest, 'createdAt' | 'device' | 'counts'> & { id: string; bytes: number }
+export type DriveBackupInfo = Pick<DriveManifest, 'createdAt' | 'device' | 'counts' | 'ancestors' | 'writeId'> & { id: string; bytes: number }
 export type DriveAccount = { id: string; label: string; availableBytes?: number }
 export type DriveProgress = { message: string; completed: number; total: number }
-export type DriveUploadResult = { createdAt: string; uploaded: number; reused: number }
+export type DriveUploadResult = { id: string; createdAt: string; uploaded: number; reused: number }
+export type DriveRestorePlan = DriveBackupInfo & { downloadFiles: number; reuseFiles: number; downloadBytes: number }
+export type DriveRestoredObject = { file: string; reused: boolean }
+export const drivePublishGuard = z.object({ accountId: z.string().min(1), head: z.string().regex(driveFileId).nullable(), writeId: z.uuid().optional() })
+export type DrivePublishGuard = z.infer<typeof drivePublishGuard>
+export const driveHeadChanged = '云端版本在同步期间发生变化。'
+export const driveAncestors = (head: DriveBackupInfo | null) => head ? [head.id, ...(head.ancestors ?? [])].slice(0, ancestorWindow) : []
 export type DriveUploadPlan = DriveManifest['counts'] & {
   token: string
   account: DriveAccount
@@ -63,18 +72,36 @@ export const customWhiteNoiseSchema = z.array(z.object({
 export type DriveWhiteNoise = z.infer<typeof customWhiteNoiseSchema>
 
 type DriveConnection = {
+  importDevelopmentClient?: () => Promise<boolean>
   status: () => Promise<{ configured: boolean; connected: boolean; account?: DriveAccount }>
   connect: () => Promise<DriveAccount>
+  cancelConnect?: () => Promise<void>
   disconnect: () => Promise<void>
 }
 export type DriveBackupAPI = DriveConnection & {
-  configure?: () => Promise<boolean>
-  prepare: (snapshot: AppSnapshot) => Promise<DriveUploadPlan>
-  upload: (token: string, onProgress: (progress: DriveProgress) => void) => Promise<DriveUploadResult>
+  notebook?: import('./driveNotebook').DriveNotebookAPI
+  account: () => Promise<DriveAccount>
+  prepare: (snapshot: AppSnapshot, whiteNoise?: DriveWhiteNoise) => Promise<DriveUploadPlan>
+  upload: (token: string, onProgress: (progress: DriveProgress) => void, guard?: DrivePublishGuard) => Promise<DriveUploadResult>
   latest: () => Promise<DriveBackupInfo | null>
-  download: (id: string, onProgress: (progress: DriveProgress) => void) => Promise<{ snapshot: AppSnapshot; whiteNoise: DriveWhiteNoise }>
+  revision: (id: string) => Promise<DriveBackupInfo>
+  previewRestore: () => Promise<DriveRestorePlan | null>
+  download: (id: string, onProgress: (progress: DriveProgress) => void) => Promise<{ snapshot: AppSnapshot; whiteNoise: DriveWhiteNoise; downloaded: number; reused: number }>
   hasRollback: () => Promise<boolean>
   rollback: () => Promise<void>
+}
+
+export async function followsDriveRevision(head: DriveBackupInfo | null, base: string, revision: DriveBackupAPI['revision']) {
+  const seen = new Set<string>()
+  let candidate = head
+  while (candidate && !seen.has(candidate.id)) {
+    const { id, ancestors } = candidate
+    if (id === base || ancestors?.includes(base)) return true
+    if (ancestors?.length !== ancestorWindow) return false
+    seen.add(id)
+    candidate = await revision(ancestors[ancestorWindow - 1])
+  }
+  return false
 }
 
 export const driveExtensions: Record<string, string> = {
@@ -90,8 +117,8 @@ export function driveObjects(manifest: DriveManifest) {
 }
 
 export function describeDriveBackup(id: string, manifest: DriveManifest): DriveBackupInfo {
-  const { createdAt, device, counts } = manifest
-  return { id, createdAt, device, counts, bytes: [...driveObjects(manifest).values()].reduce((total, item) => total + item.size, 0) }
+  const { createdAt, device, counts, ancestors, writeId } = manifest
+  return { id, createdAt, device, counts, ancestors, writeId, bytes: [...driveObjects(manifest).values()].reduce((total, item) => total + item.size, 0) }
 }
 
 /** Media fields are explicit so note text and arbitrary user metadata stay untouched. */

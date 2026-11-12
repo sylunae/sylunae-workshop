@@ -42,7 +42,7 @@ it.each([
 ] as const)('在移动端展开 %s 后，点击 %s 才导航并关闭侧栏', (group, child, action, view) => {
   const actions = renderSidebar(true)
   const parent = screen.getByRole('button', { name: group })
-  expect(screen.queryByRole('button', { name: child })).toBeNull()
+  expect(screen.queryByRole('link', { name: child })).toBeNull()
 
   fireEvent.click(parent)
   expect(parent.getAttribute('aria-expanded')).toBe('true')
@@ -50,7 +50,9 @@ it.each([
   expect(actions[action]).not.toHaveBeenCalled()
   expect(actions.onClose).not.toHaveBeenCalled()
 
-  const item = screen.getByRole('button', { name: child })
+  const item = screen.getByRole('link', { name: child })
+  const routeGroup = group === '任务箱' ? 'tasks' : group === '收藏馆' ? 'collection' : 'music'
+  expect(item.getAttribute('href')).toBe(`#/${routeGroup}/${view}`)
   expect(item.classList.contains('active')).toBe(false)
   fireEvent.click(item)
   expect(actions[action]).toHaveBeenCalledWith(view)

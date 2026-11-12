@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.StatFs;
+import android.system.Os;
 import android.util.Base64;
 import androidx.activity.result.IntentSenderRequest;
 import com.getcapacitor.JSObject;
@@ -31,6 +32,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -42,6 +44,7 @@ public class WorkshopDrivePlugin extends Plugin {
     private final ExecutorService queue = Executors.newSingleThreadExecutor();
     private volatile boolean connecting;
     private String accessToken;
+    private final LinkedHashMap<String, String> inspectedHashes = new LinkedHashMap<>(16, 0.75f, true);
 
     @Override protected void handleOnDestroy() {
         queue.shutdownNow();
@@ -125,9 +128,10 @@ public class WorkshopDrivePlugin extends Plugin {
 
     @PluginMethod public void latest(PluginCall call) {
         run(call, () -> {
+            String role = call.getBoolean("notebook", false) ? "notebook-v1" : "manifest-v1";
             Uri url = Uri.parse(API + "/files").buildUpon()
                 .appendQueryParameter("spaces", "appDataFolder")
-                .appendQueryParameter("q", "trashed = false and appProperties has { key='sylunae' and value='manifest-v1' }")
+                .appendQueryParameter("q", "trashed = false and appProperties has { key='sylunae' and value='" + role + "' }")
                 .appendQueryParameter("orderBy", "createdTime desc")
                 .appendQueryParameter("pageSize", "1")
                 .appendQueryParameter("fields", "nextPageToken,files(id,size,sha256Checksum)").build();
@@ -136,15 +140,26 @@ public class WorkshopDrivePlugin extends Plugin {
                 Uri page = pageToken.isEmpty() ? url : url.buildUpon().appendQueryParameter("pageToken", pageToken).build();
                 JSONObject listing = WorkshopDriveFiles.json(open(page.toString(), ""), 256 * 1024);
                 JSONObject file = listing.getJSONArray("files").optJSONObject(0);
-                if (file != null) {
-                    long size = file.getLong("size");
-                    if (size > 16 * 1024 * 1024) throw new IOException("云端备份清单过大。");
-                    return download(file.getString("id"), file.getString("sha256Checksum"), size);
-                }
+                if (file != null) return downloadManifest(file);
                 pageToken = listing.optString("nextPageToken");
             } while (!pageToken.isEmpty());
             return new JSObject().put("id", JSONObject.NULL);
         });
+    }
+
+    @PluginMethod public void revision(PluginCall call) {
+        run(call, () -> {
+            String id = call.getString("id", "");
+            if (!id.matches("[A-Za-z0-9_-]{1,256}")) throw new IOException("云端文件 ID 无效。");
+            JSONObject file = WorkshopDriveFiles.json(open(API + "/files/" + id + "?fields=id,size,sha256Checksum", ""), 256 * 1024);
+            return downloadManifest(file);
+        });
+    }
+
+    private JSObject downloadManifest(JSONObject file) throws Exception {
+        long size = file.getLong("size");
+        if (size > 16 * 1024 * 1024) throw new IOException("云端备份清单过大。");
+        return download(file.getString("id"), file.getString("sha256Checksum"), size);
     }
 
     @PluginMethod public void download(PluginCall call) {
@@ -216,8 +231,17 @@ public class WorkshopDrivePlugin extends Plugin {
             File file = uploadFile(call.getString("path", ""));
             if (!file.isFile()) throw new IOException("无法读取备份文件。");
             long size = file.length();
-            String hash = WorkshopFilesPlugin.hashFile(file);
-            if (file.length() != size) throw new IOException("文件正在修改，请重新检查备份。");
+            String signature = fileSignature(file);
+            boolean staged = file.getParentFile().getName().equals("drive-upload");
+            String hash = staged ? null : inspectedHashes.get(signature);
+            if (hash == null) {
+                hash = WorkshopFilesPlugin.hashFile(file);
+                if (!signature.equals(fileSignature(file))) throw new IOException("文件正在修改，请重新检查备份。");
+                if (!staged) {
+                    if (inspectedHashes.size() >= 4096) inspectedHashes.remove(inspectedHashes.keySet().iterator().next());
+                    inspectedHashes.put(signature, hash);
+                }
+            }
             String mime = "application/octet-stream";
             File sidecar = new File(file.getPath() + ".mime");
             if (file.getParentFile().getName().equals("note-assets") && sidecar.isFile()) {
@@ -227,20 +251,26 @@ public class WorkshopDrivePlugin extends Plugin {
         });
     }
 
+    private static String fileSignature(File file) throws Exception {
+        android.system.StructStat stat = Os.stat(file.getPath());
+        return file.getPath() + ":" + stat.st_ino + ":" + stat.st_size + ":" + stat.st_ctime + ":" + file.lastModified();
+    }
+
     @PluginMethod public void upload(PluginCall call) {
         run(call, () -> {
             File file = uploadFile(call.getString("path", ""));
             long size = call.getData().getLong("size");
             String hash = call.getString("sha256", "");
             boolean manifest = call.getBoolean("manifest", false);
+            boolean notebook = call.getBoolean("notebook", false);
             if (!file.isFile() || size <= 0 || size != file.length() || !hash.matches("[a-f0-9]{64}")) {
                 throw new IOException("备份文件已变化，请重新检查备份。");
             }
             String access = token();
             JSONObject metadata = new JSONObject()
-                .put("name", manifest ? "sylunae-backup-" + hash + ".json" : hash)
+                .put("name", notebook ? "sylunae-notebook-" + hash + ".json" : manifest ? "sylunae-backup-" + hash + ".json" : hash)
                 .put("parents", new JSONArray().put("appDataFolder"))
-                .put("appProperties", new JSONObject().put("sylunae", manifest ? "manifest-v1" : "object-v1"));
+                .put("appProperties", new JSONObject().put("sylunae", notebook ? "notebook-v1" : manifest ? "manifest-v1" : "object-v1"));
             HttpURLConnection initial = connection("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,size,sha256Checksum", access, "");
             String location;
             try {
@@ -285,8 +315,9 @@ public class WorkshopDrivePlugin extends Plugin {
     private JSObject download(String id, String hash, long size) throws Exception {
         if (id == null || !id.matches("[A-Za-z0-9_-]{1,256}")) throw new IOException("云端文件 ID 无效。");
         String url = API + "/files/" + id + "?alt=media";
-        return new JSObject().put("id", id).put("uri", Uri.fromFile(
-            WorkshopDriveFiles.download(getContext(), hash, size, range -> open(url, range))).toString());
+        boolean[] fromNetwork = {false};
+        File file = WorkshopDriveFiles.download(getContext(), hash, size, range -> open(url, range), () -> fromNetwork[0] = true);
+        return new JSObject().put("id", id).put("uri", Uri.fromFile(file).toString()).put("reused", !fromNetwork[0]);
     }
 
     @PluginMethod public void materialize(PluginCall call) {
@@ -297,12 +328,15 @@ public class WorkshopDrivePlugin extends Plugin {
     @PluginMethod public void space(PluginCall call) {
         run(call, () -> {
             long needed = 0;
+            int cached = 0;
             org.json.JSONArray objects = call.getArray("objects");
             for (int i = 0; i < objects.length(); i++) {
                 JSONObject object = objects.getJSONObject(i);
-                needed = Math.addExact(needed, WorkshopDriveFiles.remainingBytes(getContext(), object.getString("sha256"), object.getLong("size")));
+                long remaining = WorkshopDriveFiles.remainingBytes(getContext(), object.getString("sha256"), object.getLong("size"));
+                needed = Math.addExact(needed, remaining);
+                if (remaining == 0) cached++;
             }
-            return new JSObject().put("bytes", new StatFs(getContext().getFilesDir().getPath()).getAvailableBytes()).put("needed", needed);
+            return new JSObject().put("bytes", new StatFs(getContext().getFilesDir().getPath()).getAvailableBytes()).put("needed", needed).put("cached", cached);
         });
     }
 

@@ -29,6 +29,16 @@ describe('deferred note commits', () => {
     saver.schedule(doc('imported')); saver.flush()
     expect(save).toHaveBeenCalledTimes(1)
   })
+  it('commits the latest document at the deadline during continuous typing', () => {
+    vi.useFakeTimers()
+    const save = vi.fn()
+    const saver = createNoteContentSaver(save)
+    for (let i = 0; i < 25; i++) {
+      saver.schedule(doc(String(i)))
+      vi.advanceTimersByTime(400)
+    }
+    expect(save).toHaveBeenCalledExactlyOnceWith(doc('24').toJSON())
+  })
   it('bounds previews without visiting the remainder of a large document', () => {
     const expensive = { get text(): string { throw new Error('should not traverse remainder') } }
     expect(contentPreview({ type: 'doc', content: [{ text: 'a'.repeat(200) }, expensive] })).toHaveLength(160)

@@ -854,6 +854,8 @@ async function parseTrack(filePath: string, id: string = crypto.randomUUID()): P
   }
 }
 
+let quitting = false
+
 function createWindow(): void {
   const window = new BrowserWindow({
     width: 1380,
@@ -867,12 +869,33 @@ function createWindow(): void {
     titleBarOverlay: { color: '#00000000', symbolColor: '#6f6f6f', height: 42 },
     webPreferences: {
       preload: fileURLToPath(new URL('../preload/index.mjs', import.meta.url)),
-      additionalArguments: app.isPackaged && process.platform === 'win32' ? ['--sylunae-updates'] : [],
+      additionalArguments: app.isPackaged
+        ? (process.platform === 'win32' ? ['--sylunae-updates'] : [])
+        : ['--sylunae-development'],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
       backgroundThrottling: false,
     },
+  })
+  const contents = window.webContents
+  let closeDeadline: ReturnType<typeof setTimeout> | undefined
+  const finishClose = () => { if (!window.isDestroyed()) window.destroy() }
+  const closeReady = (event: Electron.IpcMainEvent) => {
+    if (closeDeadline && event.sender === contents) finishClose()
+  }
+  ipcMain.on('system:close-ready', closeReady)
+  window.on('closed', () => {
+    clearTimeout(closeDeadline)
+    ipcMain.removeListener('system:close-ready', closeReady)
+  })
+  window.on('close', (event) => {
+    if (quitting || contents.isLoadingMainFrame() || contents.isCrashed()) return
+    event.preventDefault()
+    if (closeDeadline) return
+    closeDeadline = setTimeout(finishClose, 20_000)
+    contents.send('system:before-close')
+    window.hide()
   })
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
@@ -1214,4 +1237,5 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-app.on('before-quit', closeDatabase)
+app.on('before-quit', () => { quitting = true })
+app.on('will-quit', closeDatabase)

@@ -1,23 +1,25 @@
 import { validateBackup } from './backup'
-import { customWhiteNoiseSchema, driveMediaRef, driveObjects, driveSectionKeys, mapDriveSnapshotMedia, type DriveManifest, type DriveMediaKind, type DriveMediaTransform, type DriveObject, type DriveProgress } from '../shared/driveBackup'
+import { customWhiteNoiseSchema, driveMediaRef, driveObjects, driveSectionKeys, mapDriveSnapshotMedia, type DriveManifest, type DriveMediaKind, type DriveMediaTransform, type DriveObject, type DriveProgress, type DriveRestoredObject } from '../shared/driveBackup'
 
 export async function restoreDriveSnapshot(
   manifest: DriveManifest,
-  fetchObject: (object: DriveObject) => Promise<string>,
+  fetchObject: (object: DriveObject) => Promise<DriveRestoredObject>,
   readJson: (file: string) => Promise<unknown>,
   materialize: (file: string, object: DriveObject, kind: DriveMediaKind, extension: string) => Promise<string>,
   onProgress: (progress: DriveProgress) => void,
 ) {
   const total = driveObjects(manifest).size
-  const downloaded = new Map<string, string>()
+  const restored = new Map<string, string>()
+  let reused = 0
   const materialized = new Map<string, string>()
   const media = new Map(manifest.media.map((item) => [item.sha256, item]))
   const download = async (item: DriveObject) => {
-    const existing = downloaded.get(item.sha256)
+    const existing = restored.get(item.sha256)
     if (existing) return existing
-    onProgress({ message: '正在下载备份文件', completed: downloaded.size, total })
-    const file = await fetchObject(item)
-    downloaded.set(item.sha256, file)
+    onProgress({ message: '正在检查缓存并读取备份文件', completed: restored.size, total })
+    const { file, reused: fromCache } = await fetchObject(item)
+    restored.set(item.sha256, file)
+    if (fromCache) reused++
     return file
   }
   const sections: Record<string, unknown> = {}
@@ -47,5 +49,5 @@ export async function restoreDriveSnapshot(
   for (const item of whiteNoise) item.localPath = await transform(item.localPath, 'path', item.title)
   snapshot.imageLibrary.roots = snapshot.imageLibrary.roots.map((root) => ({ ...root, path: '', missing: true }))
   onProgress({ message: '正在应用备份', completed: total, total })
-  return { snapshot, whiteNoise }
+  return { snapshot, whiteNoise, downloaded: restored.size - reused, reused }
 }

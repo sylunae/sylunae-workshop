@@ -53,8 +53,8 @@ it('restores an entire version from separate objects and translates its attachme
   const uri = (id: string) => 'https://localhost/' + id
   vi.stubGlobal('fetch', async (url: string) => new Response(bodies.get(url.split('/').at(-1)!) ?? null))
   native.latest.mockResolvedValue({ id: manifest.id, uri: uri(manifest.id) })
-  native.download.mockImplementation(async (entry: DriveObject) => ({ uri: uri(entry.id) }))
-  native.space.mockResolvedValue({ bytes: 1_000_000, needed: 1_000 })
+  native.download.mockImplementation(async (entry: DriveObject) => ({ uri: uri(entry.id), reused: entry.id === picture.id }))
+  native.space.mockResolvedValue({ bytes: 1_000_000, needed: 1_000, cached: 1 })
   native.materialize.mockImplementation(async ({ sha256, kind, extension }) => ({
     path: 'drive-media/' + sha256 + extension,
     uri: 'https://localhost/_capacitor_file_/drive-media/' + sha256 + extension,
@@ -63,7 +63,9 @@ it('restores an entire version from separate objects and translates its attachme
   const storage = vi.fn()
   const backup = createAndroidDriveBackup(storage as unknown as NativeCall)
   expect(await backup.latest()).toMatchObject({ id: manifest.id, device: 'desktop', counts: { notes: 1, images: 1, tracks: 1 } })
+  expect(await backup.previewRestore()).toMatchObject({ id: manifest.id, reuseFiles: 1, downloadBytes: 1_000 })
   const restore = await backup.download(manifest.id, () => {})
+  expect(restore.reused).toBe(1)
   expect(restore.snapshot.notes[0].content.content?.[0].attrs?.src).toBe('sylunae-note-asset:' + picture.sha256)
   expect(restore.snapshot.tracks[0].path).toBe('drive-media/' + music.sha256 + '.mp3')
   expect(restore.snapshot.tracks[0].cover).toBe('/_capacitor_file_/drive-media/' + picture.sha256 + '.png')
@@ -106,12 +108,12 @@ it('restores an entire version from separate objects and translates its attachme
   const plan = await backup.prepare(restore.snapshot)
   expect(plan.missing).toEqual([])
   expect(plan.reuseFiles).toBe(2)
-  const published = await backup.upload(plan.token, () => {})
+  const published = await backup.upload(plan.token, () => {}, { accountId: 'account', head: manifest.id })
   expect(published.reused).toBeGreaterThanOrEqual(2)
   const upload = native.upload.mock.calls.at(-1)?.[0]
   expect(upload.manifest).toBe(true)
   expect(JSON.parse(sections.get(upload.path)!.toString())).toMatchObject({
-    device: 'Android', media: expect.arrayContaining([picture, music]), counts: { notes: 1, tracks: 1, images: 1 },
+    device: 'Android', ancestors: [manifest.id], media: expect.arrayContaining([picture, music]), counts: { notes: 1, tracks: 1, images: 1 },
   })
   expect(native.upload.mock.calls.some(([entry]) => entry.sha256 === music.sha256 || entry.sha256 === picture.sha256)).toBe(false)
 })

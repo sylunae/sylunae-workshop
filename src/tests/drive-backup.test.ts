@@ -6,11 +6,11 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { registerGoogleDriveBackup } from '../../electron/main/googleDriveBackup'
 import { createDefaultSnapshot } from '../shared/defaults'
-import { driveManifestSchema } from '../shared/driveBackup'
+import { driveManifestSchema, type DrivePublishGuard } from '../shared/driveBackup'
 import type { AppSnapshot } from '../shared/types'
 
 const mock = vi.hoisted(() => ({
-  handlers: new Map<string, (event: unknown, token?: string) => Promise<unknown>>(),
+  handlers: new Map<string, (event: unknown, token?: string, guard?: DrivePublishGuard) => Promise<unknown>>(),
   load: vi.fn(),
   directory: '',
 }))
@@ -28,7 +28,8 @@ vi.mock('../../electron/main/googleDriveAuth', () => ({
 afterEach(() => vi.unstubAllGlobals())
 
 const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
-const call = (key: string, token?: string) => mock.handlers.get('drive:' + key)!({ sender: { isDestroyed: () => true } }, token)
+const call = (key: string, token?: string, guard?: DrivePublishGuard) =>
+  mock.handlers.get('drive:' + key)!({ sender: { isDestroyed: () => true } }, token, guard)
 
 function setupDrive() {
   const saved = new Map<string, { bytes: Buffer; role: string }>()
@@ -76,7 +77,8 @@ function setupDrive() {
         : new Response(null, { status: 308, headers: { Range: 'bytes=0-' + range[2] } })
     }
     const manifest = address.searchParams.get('orderBy') === 'createdTime desc'
-    const records = [...saved].filter(([, value]) => value.role === (manifest ? 'manifest-v1' : 'object-v1'))
+    const role = address.searchParams.get('q')?.match(/value='([^']+)'/)?.[1]
+    const records = [...saved].filter(([, value]) => value.role === role)
     return Response.json({
       files: (manifest ? records.slice(-1) : records).map(([id, { bytes }]) => ({
         id, size: String(bytes.length), sha256Checksum: hash(bytes),
@@ -89,6 +91,24 @@ function setupDrive() {
     manifests: () => [...saved.values()].filter(({ role }) => role === 'manifest-v1').map(({ bytes }) => driveManifestSchema.parse(JSON.parse(bytes.toString()))),
   }
 }
+
+it('publishes and reads a notebook revision independently of the full backup', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'sylunae-notebook-transport-'))
+  mock.directory = directory
+  try {
+    setupDrive()
+    registerGoogleDriveBackup()
+    const invoke = (key: string, ...args: unknown[]) => Reflect.apply(mock.handlers.get('drive:' + key)!, undefined, [{}, ...args])
+    const bytes = new TextEncoder().encode('{"title":"note"}')
+    const object = await invoke('notebook-put', bytes, 'application/json')
+    const value = { format: 'notebook-v1', ancestors: [], notes: [{ id: 'note', object, assets: [] }], folders: [] }
+    const id = await invoke('notebook-publish', value, null)
+    expect(await invoke('notebook-latest')).toMatchObject({ ...value, id })
+    expect(await invoke('notebook-read', object)).toEqual(bytes)
+    expect(await invoke('latest')).toBeNull()
+    await expect(invoke('notebook-publish', value, null)).rejects.toThrow('云端版本在同步期间发生变化')
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
 
 it('uploads separate verified objects, reuses media on a note edit, and keeps the last manifest on a failed upload', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'sylunae-drive-test-'))
@@ -121,16 +141,25 @@ it('uploads separate verified objects, reuses media on a note edit, and keeps th
     const notes = JSON.parse(drive.saved.get(manifest.sections.notes.id)!.bytes.toString())
     expect(notes[0].content.content[0].attrs.src).toBe('sylunae-drive:note:' + hash(Buffer.from('original image')))
     const firstPreview = await call('latest') as { id: string }
+    const stale = await call('prepare') as { token: string }
+    await expect(call('upload', stale.token, { accountId: 'account-id', head: null })).rejects.toThrow('云端版本在同步期间发生变化')
+    expect(drive.manifests()).toHaveLength(1)
 
     snapshot.notes[0].title = '改过的笔记'
     const next = await call('prepare') as { token: string; uploadFiles: number }
     expect(next.uploadFiles).toBe(1)
-    expect(await call('upload', next.token)).toMatchObject({ uploaded: 1 })
+    expect(await call('upload', next.token, { accountId: 'account-id', head: firstPreview.id })).toMatchObject({ uploaded: 1 })
     expect(drive.manifests()[1].media).toEqual(manifest.media)
+    expect(drive.manifests()[1].ancestors).toEqual([firstPreview.id])
     expect(drive.manifests()[1].sections.notes.id).not.toBe(manifest.sections.notes.id)
     await expect(call('download', firstPreview.id)).rejects.toThrow('云端备份已更新')
     const latest = await call('latest') as { id: string }
-    const restored = await call('download', latest.id) as { snapshot: AppSnapshot }
+    const firstRestore = await call('preview-restore') as { downloadFiles: number }
+    const restored = await call('download', latest.id) as { snapshot: AppSnapshot; downloaded: number; reused: number }
+    expect(restored.downloaded).toBe(firstRestore.downloadFiles)
+    expect(restored.reused).toBe(0)
+    expect(await call('preview-restore')).toMatchObject({ downloadFiles: 0, downloadBytes: 0, reuseFiles: restored.downloaded })
+    expect(await call('download', latest.id)).toMatchObject({ downloaded: 0, reused: restored.downloaded })
     expect(restored.snapshot.notes[0].title).toBe('改过的笔记')
     expect((await readFile(restored.snapshot.tracks[0].path)).equals(music)).toBe(true)
     expect(await readFile(restored.snapshot.imageLibrary.assets[0].path, 'utf8')).toBe('original image')

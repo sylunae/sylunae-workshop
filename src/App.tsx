@@ -12,7 +12,8 @@ import type { HomeIntent, MusicTrack, PomodoroMode, ResourceItem, ToolId, Worksp
 import { accessibleForeground, themeColorFields, themeCssVariables, themeDerivedCssVariables } from './shared/theme'
 import { TooltipProvider } from './components/ui/tooltip'
 import { playPomodoroAlarm, unlockPomodoroAlarm } from './utils/pomodoroAlarm'
-import { usePersistentState, useSessionState } from './lib/usePersistentState'
+import { useWorkspaceNavigation } from './app/useWorkspaceNavigation'
+import type { WorkspaceView } from './app/workspaceRoutes'
 import { isAndroid, isElectron } from './platform/environment'
 import { App as CapacitorApp } from '@capacitor/app'
 import { syncAndroidPomodoro } from './platform/reminders'
@@ -47,13 +48,7 @@ export default function App() {
   const [nowPlayingAmbient, setNowPlayingAmbient] = useState<ResourceItem | null>(null)
   const [pageScrolled, setPageScrolled] = useState(false)
   const [wallpaperSettingsOpen, setWallpaperSettingsOpen] = useState(false)
-  // Reloads stay on the current page, while closing the desktop window clears
-  // sessionStorage so the next app launch begins on the home page.
-  const [activeTool, setActiveTool] = useSessionState<ToolId>('navigation.activeTool', 'home')
-  const [musicSection, setMusicSection] = usePersistentState<'library' | 'white-noise'>('navigation.musicSection', 'library')
-  const [taskView, setTaskView] = usePersistentState<'goals' | 'todos' | 'pomodoro' | 'countdown'>('navigation.tasksView', 'goals')
-  const [collectionView, setCollectionView] = usePersistentState<'bangumi' | 'images' | 'rss'>('navigation.collectionView', 'bangumi')
-  const [musicView, setMusicView] = usePersistentState<'tracks' | 'albums'>('navigation.musicView', 'tracks')
+  const { activeTool, taskView, collectionView, musicSection, musicView, utilityView, navigate } = useWorkspaceNavigation()
   const [homeIntent, setHomeIntent] = useState<HomeIntent | null>(null)
   const visibleTool = activeTool === 'settings' ? 'home' : activeTool
   const isHome = visibleTool === 'home'
@@ -66,11 +61,24 @@ export default function App() {
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))
       } else if (settingsOpen) setSettingsOpen(false)
       else if (mobileOpen) setMobileOpen(false)
-      else if (activeTool !== 'home') setActiveTool('home')
+      else if (activeTool !== 'home') {
+        setHomeIntent(null)
+        navigate('home', 'home')
+      }
       else void CapacitorApp.minimizeApp()
     })
     return () => { void listener.then((handle) => handle.remove()) }
-  }, [activeTool, mobileOpen, settingsOpen, setActiveTool])
+  }, [activeTool, mobileOpen, settingsOpen, navigate])
+
+  useEffect(() => {
+    const clearIntent = () => setHomeIntent(null)
+    window.addEventListener('popstate', clearIntent)
+    window.addEventListener('hashchange', clearIntent)
+    return () => {
+      window.removeEventListener('popstate', clearIntent)
+      window.removeEventListener('hashchange', clearIntent)
+    }
+  }, [])
 
   useLayoutEffect(() => {
     if (!snapshot) return
@@ -159,46 +167,45 @@ export default function App() {
 
   if (loading || !snapshot) return <div className="app-loading"><Spinner /><span>正在打开丝月工坊…</span></div>
 
-  const selectTool = (tool: ToolId) => {
-    setHomeIntent(null)
-    if (tool === 'music') setMusicSection('library')
-    setActiveTool(tool)
+  const recordTool = (tool: ToolId) => {
     update((state) => {
       const recentTools = tool !== 'home' && tool !== 'settings' ? [tool as WorkspaceToolId, ...state.settings.recentTools.filter((item) => item !== tool)].slice(0, 5) : state.settings.recentTools
       const toolUsage = tool !== 'home' && tool !== 'settings' ? { ...state.settings.toolUsage, [tool]: new Date().toISOString() } : state.settings.toolUsage
       return { ...state, settings: { ...state.settings, lastTool: tool, recentTools, toolUsage, updatedAt: new Date().toISOString() } }
     })
   }
-  const openFromHome = (tool: ToolId, intent?: HomeIntent) => {
+  const selectTool = (tool: ToolId, intent?: HomeIntent) => {
     if (intent === 'pomodoro') unlockPomodoroAlarm()
-    if (tool === 'tasks' && (intent === 'goals' || intent === 'todos' || intent === 'pomodoro' || intent === 'countdown')) setTaskView(intent)
-    if (tool === 'music') setMusicSection(intent === 'white-noise' ? 'white-noise' : 'library')
-    if (tool === 'collection' && (intent === 'images' || intent === 'rss')) setCollectionView(intent)
     setHomeIntent(intent ?? null)
-    setActiveTool(tool)
-    update((state) => {
-      if (tool === 'home' || tool === 'settings') return state
-      const recentTools = [tool as WorkspaceToolId, ...state.settings.recentTools.filter((item) => item !== tool)].slice(0, 5)
-      return { ...state, settings: { ...state.settings, lastTool: tool, recentTools, toolUsage: { ...state.settings.toolUsage, [tool]: new Date().toISOString() }, updatedAt: new Date().toISOString() } }
-    })
+    switch (tool) {
+      case 'tasks':
+        navigate(tool, intent === 'goals' || intent === 'todos' || intent === 'pomodoro' || intent === 'countdown' ? intent : taskView)
+        break
+      case 'music':
+        navigate(tool, intent === 'white-noise' ? intent : musicView)
+        break
+      case 'collection':
+        navigate(tool, intent === 'images' || intent === 'rss' ? intent : collectionView)
+        break
+      case 'tools':
+        navigate(tool, intent === 'clipboard' ? intent : utilityView)
+        break
+      case 'notes':
+      case 'home':
+        navigate(tool, 'home')
+        break
+      case 'settings':
+        setSettingsMounted(true)
+        setSettingsOpen(true)
+        return
+    }
+    recordTool(tool)
   }
-  const openPomodoro = () => openFromHome('tasks', 'pomodoro')
-  const selectMusicSection = (section: 'library' | 'white-noise') => {
-    selectTool('music')
-    setMusicSection(section)
-  }
-  const selectTaskView = (view: 'goals' | 'todos' | 'pomodoro' | 'countdown') => {
+  const openPomodoro = () => selectTool('tasks', 'pomodoro')
+  const selectView = <T extends 'tasks' | 'collection' | 'music' | 'tools'>(tool: T, view: WorkspaceView<T>) => {
     setHomeIntent(null)
-    setTaskView(view)
-    selectTool('tasks')
-  }
-  const selectCollectionView = (view: 'bangumi' | 'images' | 'rss') => {
-    setCollectionView(view)
-    selectTool('collection')
-  }
-  const selectMusicView = (view: 'tracks' | 'albums') => {
-    setMusicView(view)
-    selectMusicSection('library')
+    navigate(tool, view)
+    if (activeTool !== tool) recordTool(tool)
   }
   const setSidebarCollapsed = (collapsed: boolean) => update((state) => {
     if (state.settings.sidebarCollapsed === collapsed) return state
@@ -223,10 +230,10 @@ export default function App() {
   const openSettings = () => { setSettingsMounted(true); setSettingsOpen(true) }
   const openFunFeatures = () => setFunFeaturesOpen(true)
   const page = {
-    home: <HomePage wallpaper={wallpaper.active} wallpaperSettingsOpen={wallpaperSettingsOpen} onWallpaperSettingsChange={setWallpaperSettingsOpen} onOpenTool={openFromHome} />,
-    tasks: <TasksPage view={taskView} onViewChange={setTaskView} startPomodoro={homeIntent === 'pomodoro'} />,
-    collection: <CollectionPage view={collectionView} onViewChange={setCollectionView} />,
-    tools: <ToolsPage initialView={homeIntent === 'clipboard' ? 'clipboard' : 'home'} />,
+    home: <HomePage wallpaper={wallpaper.active} wallpaperSettingsOpen={wallpaperSettingsOpen} onWallpaperSettingsChange={setWallpaperSettingsOpen} onOpenTool={selectTool} />,
+    tasks: <TasksPage view={taskView} onViewChange={(view) => selectView('tasks', view)} startPomodoro={homeIntent === 'pomodoro'} />,
+    collection: <CollectionPage view={collectionView} onViewChange={(view) => selectView('collection', view)} />,
+    tools: <ToolsPage view={utilityView} onViewChange={(view) => selectView('tools', view)} />,
     music: null,
     notes: <NotesPage createOnOpen={homeIntent === 'new-note'} />,
   }[visibleTool]
@@ -238,7 +245,7 @@ export default function App() {
 
   return <BirthdayNotifications><TooltipProvider><div className={`app-shell${isHome ? ' app-shell-home' : ''}`} style={{ '--sidebar-width': `${renderedSidebarWidth}px`, '--wallpaper-image': wallpaper.backgroundImage } as CSSProperties}>
     <HomeWallpaperBackdrop {...wallpaper} />
-    <Sidebar active={activeTool} taskView={taskView} collectionView={collectionView} musicSection={musicSection} musicView={musicView} collapsed={snapshot.settings.sidebarCollapsed} width={renderedSidebarWidth} mobileOpen={mobileOpen} settingsOpen={settingsOpen} funFeaturesOpen={funFeaturesOpen} nowPlaying={nowPlaying} nowPlayingAmbient={nowPlayingAmbient} onSelect={selectTool} onSelectTaskView={selectTaskView} onSelectCollectionView={selectCollectionView} onSelectMusicSection={selectMusicSection} onSelectMusicView={selectMusicView} onOpenSettings={openSettings} onOpenFunFeatures={openFunFeatures} onResize={resizeSidebar} onOpen={() => setMobileOpen(true)} onClose={() => setMobileOpen(false)} />
+    <Sidebar active={activeTool} taskView={taskView} collectionView={collectionView} musicSection={musicSection} musicView={musicView} collapsed={snapshot.settings.sidebarCollapsed} width={renderedSidebarWidth} mobileOpen={mobileOpen} settingsOpen={settingsOpen} funFeaturesOpen={funFeaturesOpen} nowPlaying={nowPlaying} nowPlayingAmbient={nowPlayingAmbient} onSelect={selectTool} onSelectTaskView={(view) => selectView('tasks', view)} onSelectCollectionView={(view) => selectView('collection', view)} onSelectMusicSection={(section) => selectView('music', section === 'library' ? musicView : section)} onSelectMusicView={(view) => selectView('music', view)} onOpenSettings={openSettings} onOpenFunFeatures={openFunFeatures} onResize={resizeSidebar} onOpen={() => setMobileOpen(true)} onClose={() => setMobileOpen(false)} />
     {isElectron() && <div className={`app-titlebar ${pageScrolled ? 'scrolled' : ''} ${snapshot.pomodoro.running ? 'pomodoro-running' : ''}`}>
       <div className="app-titlebar-drag" />
       <DesktopUpdate titlebar />
@@ -257,7 +264,7 @@ export default function App() {
       <Suspense fallback={<div className="app-loading"><Spinner /></div>}>
         {page}
         {(musicMounted || activeTool === 'music') && <div className="persistent-page" hidden={activeTool !== 'music'}>
-          <div className="persistent-page" hidden={musicSection !== 'library'}><MusicPage view={musicView} onViewChange={setMusicView} onNowPlayingChange={setNowPlaying} onOpenWhiteNoise={() => setMusicSection('white-noise')} /></div>
+          <div className="persistent-page" hidden={musicSection !== 'library'}><MusicPage view={musicView} onViewChange={(view) => selectView('music', view)} onNowPlayingChange={setNowPlaying} onOpenWhiteNoise={() => selectView('music', 'white-noise')} /></div>
           <div className="persistent-page" hidden={musicSection !== 'white-noise'}><WhiteNoisePage onNowPlayingChange={setNowPlayingAmbient} /></div>
         </div>}
       </Suspense>

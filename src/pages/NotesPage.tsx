@@ -37,12 +37,12 @@ type FolderFilter = 'all' | 'trash' | string
 const NoteDetailsSummary = DetailsSummary.extend({ content: 'inline*' })
 
 export function NotesPage({ createOnOpen = false }: { createOnOpen?: boolean }) {
-  const { snapshot, update } = useAppStore()
+  const { snapshot, snapshotEpoch, noteRevisions, update } = useAppStore()
   if (!snapshot) return null
-  return <NotesWorkspace notes={snapshot.notes} folders={snapshot.folders} update={update} createOnOpen={createOnOpen} />
+  return <NotesWorkspace notes={snapshot.notes} folders={snapshot.folders} snapshotEpoch={snapshotEpoch} noteRevisions={noteRevisions} update={update} createOnOpen={createOnOpen} />
 }
 
-const NotesWorkspace = memo(function NotesWorkspace({ notes, folders, update, createOnOpen }: { notes: Note[]; folders: import('../shared/types').NoteFolder[]; update: ReturnType<typeof useAppStore>['update']; createOnOpen: boolean }) {
+const NotesWorkspace = memo(function NotesWorkspace({ notes, folders, snapshotEpoch, noteRevisions, update, createOnOpen }: { notes: Note[]; folders: import('../shared/types').NoteFolder[]; snapshotEpoch: number; noteRevisions: ReadonlyMap<string, number>; update: ReturnType<typeof useAppStore>['update']; createOnOpen: boolean }) {
   const [folderFilter, setFolderFilter] = useState<FolderFilter>('all')
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = usePersistentState<string | null>('navigation.notesSelectedId', null)
@@ -123,7 +123,7 @@ const NotesWorkspace = memo(function NotesWorkspace({ notes, folders, update, cr
         <label className="search-box small"><Search size={15} /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记" /></label>
         <VirtualNoteList notes={visibleNotes} selectedId={selectedId} onSelect={setSelectedId} resetKey={`${folderFilter}:${query}`} />
       </div>
-      <div className="editor-pane">{selected ? <MemoNoteEditor key={selected.id} note={selected} folders={folders} inTrash={Boolean(selected.deletedAt)} onSave={(patch) => saveNote(selected.id, patch)} onTrash={() => moveToTrash(selected)} onRestore={() => restore(selected)} onDestroy={() => setDeleteTarget(selected)} /> : <EmptyState icon={<NotebookPen size={25} />} title={folderFilter === 'trash' ? '回收站是空的' : '开始写一点什么'} description={folderFilter === 'trash' ? '删除的笔记会在这里等待你决定。' : '新建一条笔记，记下此刻的想法。'} action={folderFilter !== 'trash' ? <Button className="button primary" onClick={addNote}>新建笔记</Button> : undefined} />}</div>
+      <div className="editor-pane">{selected ? <MemoNoteEditor key={snapshotEpoch + ":" + selected.id + ":" + (noteRevisions.get(selected.id) ?? 0)} note={selected} folders={folders} inTrash={Boolean(selected.deletedAt)} onSave={(patch) => saveNote(selected.id, patch)} onTrash={() => moveToTrash(selected)} onRestore={() => restore(selected)} onDestroy={() => setDeleteTarget(selected)} /> : <EmptyState icon={<NotebookPen size={25} />} title={folderFilter === 'trash' ? '回收站是空的' : '开始写一点什么'} description={folderFilter === 'trash' ? '删除的笔记会在这里等待你决定。' : '新建一条笔记，记下此刻的想法。'} action={folderFilter !== 'trash' ? <Button className="button primary" onClick={addNote}>新建笔记</Button> : undefined} />}</div>
     </div>
     <Sheet open={browserOpen} onOpenChange={setBrowserOpen}><SheetContent side="left" className="notes-browser-sheet"><SheetHeader><SheetTitle>笔记</SheetTitle><SheetDescription>选择文件夹或继续编辑一篇笔记。</SheetDescription></SheetHeader><div className="notes-browser-body"><div className="notes-browser-folders"><button className={folderFilter === 'all' ? 'active' : ''} onClick={() => setFolderFilter('all')}><NotebookPen size={17} />全部笔记<span>{counts.all}</span></button><div className="notes-browser-folder-heading"><span>文件夹</span><button onClick={() => { setBrowserOpen(false); setCreatingFolder(true) }} title="新建文件夹"><FolderPlus size={15} /></button></div>{folders.map((folder) => <button key={folder.id} className={folderFilter === folder.id ? 'active' : ''} onClick={() => setFolderFilter(folder.id)}><Folder size={16} /><span className="user-content">{folder.name}</span><span>{counts.folders.get(folder.id) ?? 0}</span></button>)}<button className={`notes-browser-trash ${folderFilter === 'trash' ? 'active' : ''}`} onClick={() => setFolderFilter('trash')}><Trash2 size={16} />回收站<span>{counts.trash}</span></button></div><div className="notes-browser-list"><label className="search-box small"><Search size={15} /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记" /></label><VirtualNoteList notes={visibleNotes} selectedId={selectedId} onSelect={selectFromBrowser} resetKey={`${folderFilter}:${query}`} compact /></div></div></SheetContent></Sheet>
     <PromptDialog open={creatingFolder} onOpenChange={setCreatingFolder} title="新建文件夹" description="为笔记创建一个新分类。" placeholder="文件夹名称" confirmLabel="创建" onSubmit={addFolder} />
@@ -158,14 +158,20 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
   const markdownInput = useRef<HTMLInputElement>(null)
   const saveRef = useRef(onSave)
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const titleDeadline = useRef<ReturnType<typeof setTimeout> | null>(null)
   const contentSaver = useRef<ReturnType<typeof createNoteContentSaver> | null>(null)
   if (!contentSaver.current) contentSaver.current = createNoteContentSaver((content) => saveRef.current({ content }))
   const pendingTitle = useRef<string | null>(null)
   saveRef.current = onSave
 
   const commitContent = () => contentSaver.current?.flush()
+  const clearTitleTimers = () => {
+    if (titleTimer.current) clearTimeout(titleTimer.current)
+    if (titleDeadline.current) clearTimeout(titleDeadline.current)
+    titleTimer.current = titleDeadline.current = null
+  }
   const commitTitle = () => {
-    if (titleTimer.current) { clearTimeout(titleTimer.current); titleTimer.current = null }
+    clearTitleTimers()
     if (pendingTitle.current === null) return
     const title = pendingTitle.current
     pendingTitle.current = null
@@ -176,6 +182,8 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
     pendingTitle.current = title
     if (titleTimer.current) clearTimeout(titleTimer.current)
     titleTimer.current = setTimeout(commitTitle, 500)
+    titleDeadline.current ??= setTimeout(commitTitle, 10_000)
+    window.dispatchEvent(new Event('sylunae:note-edited'))
   }
   const editor = useEditor({
     // Creating the editor during render can leave a destroyed instance behind
@@ -216,7 +224,10 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
     },
     onCreate: ({ editor: instance }) => contentSaver.current?.reset(instance.state.doc),
     onUpdate: ({ editor: instance, transaction }) => {
-      if (transaction.docChanged) contentSaver.current?.schedule(instance.state.doc)
+      if (transaction.docChanged) {
+        contentSaver.current?.schedule(instance.state.doc)
+        window.dispatchEvent(new Event('sylunae:note-edited'))
+      }
     },
     onBlur: commitContent,
   })
@@ -235,9 +246,8 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
   }, [])
 
   useEffect(() => () => {
-    if (titleTimer.current) clearTimeout(titleTimer.current)
-    contentSaver.current?.flush()
-    if (pendingTitle.current !== null) saveRef.current({ title: pendingTitle.current })
+    commitTitle()
+    commitContent()
   }, [])
 
   if (!editor || editor.isDestroyed) return null
@@ -290,7 +300,7 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
       patch.title = imported.title
     }
     contentSaver.current?.reset(editor.state.doc)
-    if (titleTimer.current) clearTimeout(titleTimer.current)
+    clearTitleTimers()
     pendingTitle.current = null
     onSave(patch)
     setPendingImport(null)
@@ -311,7 +321,7 @@ function NoteEditor({ note, folders, inTrash, onSave, onTrash, onRestore, onDest
     return true
   }).run()
 
-  return <div className="note-editor-wrap">
+  return <div className="note-editor-wrap" data-notebook-note={note.id}>
     <div className="note-editor-top"><Select value={note.folderId || 'none'} disabled={inTrash} onValueChange={(value) => onSave({ folderId: value === 'none' ? null : value })}><SelectTrigger className="select-control"><SelectValue className={note.folderId ? 'user-content' : undefined} /></SelectTrigger><SelectContent><SelectItem value="none">无文件夹</SelectItem>{folders.map((folder) => <SelectItem key={folder.id} value={folder.id}><span className="user-content">{folder.name}</span></SelectItem>)}</SelectContent></Select><Input className="note-title-input" value={titleDraft} disabled={inTrash} onChange={(event) => scheduleTitle(event.target.value)} onBlur={commitTitle} placeholder="无标题笔记" /><div>
       {!inTrash && <><button className="icon-button" onClick={exportMarkdown} title="导出 Markdown"><Download size={17} /></button><button className="icon-button" onClick={() => markdownInput.current?.click()} title="导入 Markdown"><Upload size={17} /></button><button className="icon-button" onClick={() => onSave({ pinned: !note.pinned })} title={note.pinned ? '取消置顶' : '置顶'}>{note.pinned ? <PinOff size={17} /> : <Pin size={17} />}</button></>}
       {inTrash ? <><button className="icon-button" onClick={onRestore} title="恢复"><ArchiveRestore size={17} /></button><button className="icon-button danger" onClick={onDestroy} title="永久删除"><Trash2 size={17} /></button></> : <button className="icon-button" onClick={onTrash} title="移至回收站"><Trash2 size={17} /></button>}

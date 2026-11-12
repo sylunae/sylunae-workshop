@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { Album, BookHeart, BookOpen, Boxes, CalendarClock, ChevronDown, ChevronRight, CloudRain, Download, Images, Library, ListChecks, ListTodo, Menu, MoreHorizontal, Music2, NotebookPen, Rss, Settings, Sparkles, Target } from 'lucide-react'
 import { useMediaQuery } from '../lib/useMediaQuery'
+import { workspaceHref } from '../app/workspaceRoutes'
+import { WorkspaceLink } from './WorkspaceLink'
 import type { MusicTrack, ResourceItem, ToolId } from '../shared/types'
 import { BrandMark } from './Icons'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu'
@@ -169,18 +171,18 @@ export function Sidebar({ active, taskView, collectionView, musicSection, musicV
             </button>
             <div id={submenuId} className="nav-children" aria-hidden={!expanded} inert={!expanded}>
               {id === 'tasks' ? <>
-                <button className={current && taskView === 'goals' ? 'active' : ''} onClick={() => { onSelectTaskView('goals'); onClose() }} title="目标追踪"><Target size={17} strokeWidth={1.7} /><span>目标追踪</span></button>
-                <button className={current && taskView === 'todos' ? 'active' : ''} onClick={() => { onSelectTaskView('todos'); onClose() }} title="快速待办"><ListTodo size={17} strokeWidth={1.7} /><span>快速待办</span></button>
-                <button className={current && taskView === 'pomodoro' ? 'active' : ''} onClick={() => { onSelectTaskView('pomodoro'); onClose() }} title="番茄钟"><CalendarClock size={17} strokeWidth={1.7} /><span>番茄钟</span></button>
-                <button className={current && taskView === 'countdown' ? 'active' : ''} onClick={() => { onSelectTaskView('countdown'); onClose() }} title="倒数日"><CalendarClock size={17} strokeWidth={1.7} /><span>倒数日</span></button>
+                <WorkspaceLink className={current && taskView === 'goals' ? 'active' : ''} aria-current={current && taskView === 'goals' ? 'page' : undefined} href={workspaceHref('tasks', 'goals')} onNavigate={() => { onSelectTaskView('goals'); onClose() }} title="目标追踪"><Target size={17} strokeWidth={1.7} /><span>目标追踪</span></WorkspaceLink>
+                <WorkspaceLink className={current && taskView === 'todos' ? 'active' : ''} aria-current={current && taskView === 'todos' ? 'page' : undefined} href={workspaceHref('tasks', 'todos')} onNavigate={() => { onSelectTaskView('todos'); onClose() }} title="快速待办"><ListTodo size={17} strokeWidth={1.7} /><span>快速待办</span></WorkspaceLink>
+                <WorkspaceLink className={current && taskView === 'pomodoro' ? 'active' : ''} aria-current={current && taskView === 'pomodoro' ? 'page' : undefined} href={workspaceHref('tasks', 'pomodoro')} onNavigate={() => { onSelectTaskView('pomodoro'); onClose() }} title="番茄钟"><CalendarClock size={17} strokeWidth={1.7} /><span>番茄钟</span></WorkspaceLink>
+                <WorkspaceLink className={current && taskView === 'countdown' ? 'active' : ''} aria-current={current && taskView === 'countdown' ? 'page' : undefined} href={workspaceHref('tasks', 'countdown')} onNavigate={() => { onSelectTaskView('countdown'); onClose() }} title="倒数日"><CalendarClock size={17} strokeWidth={1.7} /><span>倒数日</span></WorkspaceLink>
               </> : id === 'collection' ? <>
-                <button className={current && collectionView === 'bangumi' ? 'active' : ''} onClick={() => { onSelectCollectionView('bangumi'); onClose() }} title="Bangumi"><BookOpen size={17} strokeWidth={1.7} /><span>Bangumi</span></button>
-                <button className={current && collectionView === 'images' ? 'active' : ''} onClick={() => { onSelectCollectionView('images'); onClose() }} title="精选图片"><Images size={17} strokeWidth={1.7} /><span>精选图片</span></button>
-                <button className={current && collectionView === 'rss' ? 'active' : ''} onClick={() => { onSelectCollectionView('rss'); onClose() }} title="RSS 订阅"><Rss size={17} strokeWidth={1.7} /><span>RSS 订阅</span></button>
+                <WorkspaceLink className={current && collectionView === 'bangumi' ? 'active' : ''} aria-current={current && collectionView === 'bangumi' ? 'page' : undefined} href={workspaceHref('collection', 'bangumi')} onNavigate={() => { onSelectCollectionView('bangumi'); onClose() }} title="Bangumi"><BookOpen size={17} strokeWidth={1.7} /><span>Bangumi</span></WorkspaceLink>
+                <WorkspaceLink className={current && collectionView === 'images' ? 'active' : ''} aria-current={current && collectionView === 'images' ? 'page' : undefined} href={workspaceHref('collection', 'images')} onNavigate={() => { onSelectCollectionView('images'); onClose() }} title="精选图片"><Images size={17} strokeWidth={1.7} /><span>精选图片</span></WorkspaceLink>
+                <WorkspaceLink className={current && collectionView === 'rss' ? 'active' : ''} aria-current={current && collectionView === 'rss' ? 'page' : undefined} href={workspaceHref('collection', 'rss')} onNavigate={() => { onSelectCollectionView('rss'); onClose() }} title="RSS 订阅"><Rss size={17} strokeWidth={1.7} /><span>RSS 订阅</span></WorkspaceLink>
               </> : <>
-                <button className={current && musicSection === 'library' && musicView === 'tracks' ? 'active' : ''} onClick={() => { onSelectMusicView('tracks'); onClose() }} title="歌曲"><Music2 size={17} strokeWidth={1.7} /><span>歌曲</span></button>
-                <button className={current && musicSection === 'library' && musicView === 'albums' ? 'active' : ''} onClick={() => { onSelectMusicView('albums'); onClose() }} title="专辑"><Album size={17} strokeWidth={1.7} /><span>专辑</span></button>
-                <button className={current && musicSection === 'white-noise' ? 'active' : ''} onClick={() => { onSelectMusicSection('white-noise'); onClose() }} title="白噪音"><CloudRain size={17} strokeWidth={1.7} /><span>白噪音</span></button>
+                <WorkspaceLink className={current && musicSection === 'library' && musicView === 'tracks' ? 'active' : ''} aria-current={current && musicSection === 'library' && musicView === 'tracks' ? 'page' : undefined} href={workspaceHref('music', 'tracks')} onNavigate={() => { onSelectMusicView('tracks'); onClose() }} title="歌曲"><Music2 size={17} strokeWidth={1.7} /><span>歌曲</span></WorkspaceLink>
+                <WorkspaceLink className={current && musicSection === 'library' && musicView === 'albums' ? 'active' : ''} aria-current={current && musicSection === 'library' && musicView === 'albums' ? 'page' : undefined} href={workspaceHref('music', 'albums')} onNavigate={() => { onSelectMusicView('albums'); onClose() }} title="专辑"><Album size={17} strokeWidth={1.7} /><span>专辑</span></WorkspaceLink>
+                <WorkspaceLink className={current && musicSection === 'white-noise' ? 'active' : ''} aria-current={current && musicSection === 'white-noise' ? 'page' : undefined} href={workspaceHref('music', 'white-noise')} onNavigate={() => { onSelectMusicSection('white-noise'); onClose() }} title="白噪音"><CloudRain size={17} strokeWidth={1.7} /><span>白噪音</span></WorkspaceLink>
               </>}
             </div>
           </div>

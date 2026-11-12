@@ -5,7 +5,7 @@ import { dirname } from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { z } from 'zod'
-import { driveFileId, driveHash, type DriveAccount, type DriveObject } from '../../src/shared/driveBackup'
+import { driveFileId, driveHash, type DriveAccount, type DriveObject, type DriveRestoredObject } from '../../src/shared/driveBackup'
 import { readGoogleJson } from './googleDriveAuth'
 
 const filesApi = 'https://www.googleapis.com/drive/v3/files'
@@ -18,6 +18,12 @@ const fileSchema = z.object({
   sha256Checksum: z.string().regex(driveHash).optional(),
 })
 
+function manifestObject(file: z.infer<typeof fileSchema>): DriveObject {
+  const size = Number(file.size)
+  if (!file.sha256Checksum || !Number.isSafeInteger(size) || size < 0 || size > 16 * 1024 * 1024) throw new Error('云端备份清单无效。')
+  return { id: file.id, size, sha256: file.sha256Checksum, mime: 'application/json' }
+}
+
 export type UploadSource = Buffer | string
 export const bufferHash = (buffer: Buffer) => createHash('sha256').update(buffer).digest('hex')
 
@@ -29,7 +35,7 @@ export class GoogleDriveFiles {
       ...init,
       redirect: 'manual',
       headers: { ...init.headers, Authorization: 'Bearer ' + await this.getToken(force) },
-      signal: AbortSignal.timeout(120_000),
+      signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000),
     })
     const response = await send(false)
     if (response.status !== 401) return response
@@ -37,12 +43,12 @@ export class GoogleDriveFiles {
     return send(true)
   }
 
-  async account(): Promise<DriveAccount> {
+  async account(signal?: AbortSignal): Promise<DriveAccount> {
     const query = new URLSearchParams({ fields: 'user(permissionId,emailAddress,displayName),storageQuota(limit,usage)' })
     const data = z.object({
       user: z.object({ permissionId: z.string(), emailAddress: z.string().optional(), displayName: z.string().optional() }),
       storageQuota: z.object({ limit: z.string().optional(), usage: z.string().optional() }).optional(),
-    }).parse(await readGoogleJson(await this.request('https://www.googleapis.com/drive/v3/about?' + query)))
+    }).parse(await readGoogleJson(await this.request('https://www.googleapis.com/drive/v3/about?' + query, { signal })))
     const { user, storageQuota } = data
     const availableBytes = storageQuota?.limit && storageQuota.usage
       ? Math.max(0, Number(storageQuota.limit) - Number(storageQuota.usage))
@@ -69,33 +75,35 @@ export class GoogleDriveFiles {
     return results
   }
 
-  async latest(): Promise<DriveObject | null> {
+  async latest(role: 'manifest-v1' | 'notebook-v1' = 'manifest-v1'): Promise<DriveObject | null> {
     const query = new URLSearchParams({
       spaces: 'appDataFolder', pageSize: '1', orderBy: 'createdTime desc',
-      q: "trashed = false and appProperties has { key='sylunae' and value='manifest-v1' }",
+      q: "trashed = false and appProperties has { key='sylunae' and value='" + role + "' }",
       fields: 'nextPageToken,files(' + objectFields + ')',
     })
     do {
       const page = z.object({ nextPageToken: z.string().optional(), files: z.array(fileSchema) })
         .parse(await readGoogleJson(await this.request(filesApi + '?' + query)))
       const file = page.files[0]
-      if (file) {
-        const size = Number(file.size)
-        if (!file.sha256Checksum || !Number.isSafeInteger(size) || size < 0 || size > 16 * 1024 * 1024) throw new Error('云端备份清单无效。')
-        return { id: file.id, size, sha256: file.sha256Checksum, mime: 'application/json' }
-      }
+      if (file) return manifestObject(file)
       if (!page.nextPageToken) return null
       query.set('pageToken', page.nextPageToken)
     } while (true)
   }
 
-  async download(object: DriveObject, destination: string): Promise<string> {
+  async revision(id: string): Promise<DriveObject> {
+    if (!driveFileId.test(id)) throw new Error('云端文件 ID 无效。')
+    const response = await this.request(filesApi + '/' + id + '?fields=' + objectFields)
+    return manifestObject(fileSchema.parse(await readGoogleJson(response)))
+  }
+
+  async download(object: DriveObject, destination: string): Promise<DriveRestoredObject> {
     const { id, sha256, size } = object
     const details = await stat(destination).catch(() => undefined)
     if (details?.isFile() && details.size === size) {
       const hash = createHash('sha256')
       for await (const chunk of createReadStream(destination)) hash.update(chunk)
-      if (hash.digest('hex') === sha256) return destination
+      if (hash.digest('hex') === sha256) return { file: destination, reused: true }
     }
     await mkdir(dirname(destination), { recursive: true })
     const response = await this.request(filesApi + '/' + id + '?alt=media')
@@ -116,11 +124,11 @@ export class GoogleDriveFiles {
       await pipeline(Readable.from(response.body), verify, createWriteStream(partial))
       if (received !== size || hash.digest('hex') !== sha256) throw new Error('云端文件校验失败。')
       await rename(partial, destination)
-      return destination
+      return { file: destination, reused: false }
     } finally { await unlink(partial).catch(() => undefined) }
   }
 
-  async upload(name: string, role: 'object-v1' | 'manifest-v1', source: UploadSource, size: number, sha256: string) {
+  async upload(name: string, role: 'object-v1' | 'manifest-v1' | 'notebook-v1', source: UploadSource, size: number, sha256: string) {
     const metadata = { name, parents: ['appDataFolder'], appProperties: { sylunae: role } }
     const fields = '&fields=' + objectFields
     let file: unknown

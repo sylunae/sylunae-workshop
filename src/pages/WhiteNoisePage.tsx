@@ -3,6 +3,7 @@ import { CloudRain, Coffee, Download, Droplets, Flame, Headphones, LoaderCircle,
 import { Button } from '../components/ui/button'
 import { Slider } from '../components/ui/slider'
 import { whiteNoiseCatalog, defaultWhiteNoiseId } from '../resources/whiteNoiseCatalog'
+import { editDriveResources } from '../app/driveLocalState'
 import type { ResourceDownloadProgress, ResourceItem } from '../shared/types'
 import { formatDuration } from '../utils'
 import { usePersistentState } from '../lib/usePersistentState'
@@ -113,7 +114,7 @@ export function WhiteNoisePage({ onNowPlayingChange }: { onNowPlayingChange: (it
   const download = async (item: ResourceItem): Promise<ResourceItem> => {
     if (!window.sylunae) throw new Error('按需下载为客户端专属功能')
     setBusyId(item.id)
-    const installed = await window.sylunae.resources.download(item.id)
+    const installed = await editDriveResources(() => window.sylunae!.resources.download(item.id))
     await refresh()
     window.dispatchEvent(new Event('sylunae-resources-changed'))
     return installed
@@ -125,7 +126,7 @@ export function WhiteNoisePage({ onNowPlayingChange }: { onNowPlayingChange: (it
     setSelectedId(item.id)
     try {
       if (isAndroid) {
-        const playable = item.localPath ? item : await window.sylunae!.resources.download(item.id)
+        const playable = item.localPath ? item : await editDriveResources(() => window.sylunae!.resources.download(item.id))
         if (!playable.localPath) throw new Error('音频未保存到本地')
         await playerCommand('modes', { shuffle: false, repeat: 'one' })
         await playerCommand('volume', { volume })
@@ -176,7 +177,7 @@ export function WhiteNoisePage({ onNowPlayingChange }: { onNowPlayingChange: (it
     setBusyId('import')
     setError('')
     try {
-      const imported = await window.sylunae.resources.importWhiteNoise()
+      const imported = await editDriveResources(() => window.sylunae!.resources.importWhiteNoise())
       if (imported) {
         await refresh()
         window.dispatchEvent(new Event('sylunae-resources-changed'))
