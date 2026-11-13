@@ -5,6 +5,7 @@ export const snapshotSectionKeys = [
   'settings',
   'bangumi',
   'imageLibrary',
+  'collectionExtras',
   'tracks',
   'albums',
   'folders',

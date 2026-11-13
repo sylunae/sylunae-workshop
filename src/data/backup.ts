@@ -81,6 +81,20 @@ const imageRootSchema = z.object({ id: z.string(), path: z.string(), name: z.str
 const imageCollectionSchema = z.object({ id: z.string(), name: z.string(), createdAt: timestamp, updatedAt: timestamp })
 const imageAssetSchema = z.object({ id: z.string(), rootId: z.string().nullable().optional(), collectionIds: z.array(z.string()).optional(), path: z.string(), relativePath: z.string(), name: z.string(), extension: z.string(), size: z.number().nonnegative(), mtimeMs: z.number().nonnegative(), width: z.number().nonnegative(), height: z.number().nonnegative(), aspectType: z.enum(['landscape', 'portrait', 'square']), identity: z.string(), hash: z.string(), missing: z.boolean(), metadata: z.record(z.string(), z.unknown()).optional().default({}), createdAt: timestamp, updatedAt: timestamp })
 
+const collectionExtrasSchema = z.object({
+  memes: z.array(z.object({ id: z.string(), text: z.string().min(1), createdAt: timestamp })),
+  stickerPacks: z.array(z.object({
+    id: z.string(),
+    name: z.string().refine((name) => Boolean(name.trim())),
+    stickers: z.array(z.object({
+      id: z.string(),
+      name: z.string(),
+      fileName: z.string(),
+      src: z.string().regex(/^(?:sylunae-note-asset:[a-f0-9]{64}$|sylunae-drive:note:[a-f0-9]{64}$|data:image\/[a-z0-9.+-]+;base64,)/i),
+    })),
+  })),
+})
+
 const envelopeSchema = z.object({
   format: z.literal('siyue-workshop-backup'),
   version: z.literal(1),
@@ -102,6 +116,7 @@ const envelopeSchema = z.object({
     clipboardSnippets: z.array(clipboardSchema).optional().default([]),
     launcherLinks: z.array(launcherSchema).optional().default([]),
     birthdays: birthdaySchema,
+    collectionExtras: collectionExtrasSchema.optional().default({ memes: [], stickerPacks: [] }),
     imageLibrary: z.object({ roots: z.array(imageRootSchema), collections: z.array(imageCollectionSchema).optional().default([]), assets: z.array(imageAssetSchema) }).optional().default({ roots: [], collections: [], assets: [] }),
   }),
 })
@@ -113,7 +128,7 @@ const partialPayloadSchemas: Record<PartialBackupSection, z.ZodType> = {
   tasks: z.object({ goals: z.array(goalSchema), todos: z.array(todoSchema), recurringTodos: z.array(recurringTodoSchema).optional().default([]), todoCompletionRecords: z.array(todoCompletionRecordSchema).optional().default([]), pomodoro: pomodoroSchema, countdowns: z.array(countdownSchema).optional().default([]) }),
   notes: z.object({ folders: z.array(folderSchema), notes: z.array(noteSchema) }),
   music: z.object({ tracks: z.array(trackSchema), albums: z.array(albumSchema) }),
-  collection: z.object({ bangumi: z.object({ username: z.string(), items: z.array(bangumiItemSchema), syncedAt: timestamp }).nullable(), bangumiUsername: z.string() }),
+  collection: z.object({ bangumi: z.object({ username: z.string(), items: z.array(bangumiItemSchema), syncedAt: timestamp }).nullable(), bangumiUsername: z.string(), collectionExtras: collectionExtrasSchema.optional() }),
   tools: z.object({ birthdays: birthdaySchema, clipboardSnippets: z.array(clipboardSchema), launcherLinks: z.array(launcherSchema), imageLibrary: imageLibrarySchema }),
   settings: settingsSchema,
 }
@@ -127,7 +142,7 @@ export const partialBackupSectionMeta: Array<{ id: PartialBackupSection; label: 
   { id: 'tasks', label: '任务箱', description: '目标、待办、番茄钟与倒数日' },
   { id: 'notes', label: '笔记本', description: '笔记与文件夹' },
   { id: 'music', label: '音乐库', description: '音乐和专辑索引，不含原始文件' },
-  { id: 'collection', label: '收藏馆', description: 'Bangumi 收藏缓存与用户名' },
+  { id: 'collection', label: '收藏馆', description: 'Bangumi、梗收集与表情包' },
   { id: 'tools', label: '工具箱', description: '剪贴板、链接启动器、生日通知与图片索引' },
   { id: 'settings', label: '设置', description: '主题、界面偏好和关联服务' },
 ]
@@ -138,7 +153,7 @@ export function createPartialBackup(snapshot: AppSnapshot, section: PartialBacku
     tasks: (({ goals, todos, recurringTodos, todoCompletionRecords, pomodoro, countdowns }) => ({ goals, todos, recurringTodos, todoCompletionRecords, pomodoro, countdowns }))(snapshot),
     notes: (({ folders, notes }) => ({ folders, notes }))(snapshot),
     music: (({ tracks, albums }) => ({ tracks, albums }))(snapshot),
-    collection: { bangumi: snapshot.bangumi, bangumiUsername: snapshot.settings.bangumiUsername },
+    collection: { bangumi: snapshot.bangumi, bangumiUsername: snapshot.settings.bangumiUsername, collectionExtras: snapshot.collectionExtras },
     tools: (({ clipboardSnippets, launcherLinks, imageLibrary, birthdays }) => ({ clipboardSnippets, launcherLinks, imageLibrary, birthdays }))(snapshot),
     settings: snapshot.settings,
   }
@@ -164,8 +179,8 @@ export function applyPartialBackup(current: AppSnapshot, backup: PartialBackupEn
     case 'notes': return { ...current, ...(backup.payload as Pick<AppSnapshot, 'folders' | 'notes'>) }
     case 'music': return { ...current, ...(backup.payload as Pick<AppSnapshot, 'tracks' | 'albums'>) }
     case 'collection': {
-      const payload = backup.payload as { bangumi: AppSnapshot['bangumi']; bangumiUsername: string }
-      return { ...current, bangumi: payload.bangumi, settings: { ...current.settings, bangumiUsername: payload.bangumiUsername, updatedAt } }
+      const payload = backup.payload as { bangumi: AppSnapshot['bangumi']; bangumiUsername: string; collectionExtras?: AppSnapshot['collectionExtras'] }
+      return { ...current, bangumi: payload.bangumi, collectionExtras: payload.collectionExtras ?? current.collectionExtras, settings: { ...current.settings, bangumiUsername: payload.bangumiUsername, updatedAt } }
     }
     case 'tools': return { ...current, ...(backup.payload as Pick<AppSnapshot, 'clipboardSnippets' | 'launcherLinks' | 'imageLibrary' | 'birthdays'>) }
     case 'settings': return { ...current, settings: { ...(backup.payload as AppSettings), updatedAt } }

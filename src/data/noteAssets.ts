@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type { JSONContent } from '@tiptap/core'
-import type { AppSnapshot, Note } from '../shared/types'
+import type { AppSnapshot, CollectionExtras, Note } from '../shared/types'
 import { portableBackupMedia } from '../platform/portableAssets'
 import { applicationDatabaseName } from '../lib/storageEnvironment'
 
@@ -91,20 +91,31 @@ export async function noteImageDataUrl(reference: string): Promise<string> {
   })
 }
 
+export async function mapStickerImages(collection: CollectionExtras, transform: (source: string) => Promise<string>): Promise<CollectionExtras> {
+  const stickerPacks = []
+  for (const pack of collection.stickerPacks) {
+    const stickers = []
+    for (const sticker of pack.stickers) stickers.push({ ...sticker, src: await transform(sticker.src) })
+    stickerPacks.push({ ...pack, stickers })
+  }
+  return { ...collection, stickerPacks }
+}
+
 /** Exports remain self-contained and compatible with older installations. */
 export async function portableNoteSnapshot(snapshot: AppSnapshot): Promise<AppSnapshot> {
   if (window.sylunae) return portableBackupMedia(snapshot)
   const cache = new Map<string, Promise<string>>()
+  const embed = (source: string) => {
+    if (!source.startsWith(noteAssetPrefix)) return Promise.resolve(source)
+    if (!cache.has(source)) cache.set(source, noteImageDataUrl(source))
+    return cache.get(source)!
+  }
   const notes: Note[] = []
   for (const note of snapshot.notes) {
-    const content = await mapNoteImages(note.content, (source) => {
-      if (!source.startsWith(noteAssetPrefix)) return Promise.resolve(source)
-      if (!cache.has(source)) cache.set(source, noteImageDataUrl(source))
-      return cache.get(source)!
-    })
+    const content = await mapNoteImages(note.content, embed)
     notes.push(content === note.content ? note : { ...note, content })
   }
-  return { ...snapshot, notes }
+  return { ...snapshot, notes, collectionExtras: await mapStickerImages(snapshot.collectionExtras, embed) }
 }
 
 // Only mounted image nodes hold Blob URLs. Release on node removal or note switch.

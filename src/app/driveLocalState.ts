@@ -75,6 +75,8 @@ export async function readDriveResources(): Promise<DriveWhiteNoise> {
 export async function driveLocalHash(snapshot: AppSnapshot, resources?: DriveWhiteNoise, excludeNotebook = false) {
   const sections = await Promise.all(snapshotSectionKeys
     .filter((key) => !excludeNotebook || (key !== 'notes' && key !== 'folders'))
+    // Keep existing sync baselines valid until the user adds collection data.
+    .filter((key) => key !== 'collectionExtras' || snapshot.collectionExtras.memes.length > 0 || snapshot.collectionExtras.stickerPacks.length > 0)
     .map((key) => sectionHash(snapshot, key)))
   return hash([...sections, resources ?? await readDriveResources()])
 }

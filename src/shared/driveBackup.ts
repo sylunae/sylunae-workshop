@@ -5,6 +5,7 @@ import { createDefaultSnapshot } from './defaults'
 
 export const driveBackupFormat = 'sylunae-drive-backup'
 export const driveSectionKeys = [...snapshotSectionKeys, 'customWhiteNoise'] as const
+const requiredDriveSections = driveSectionKeys.filter((key) => key !== 'collectionExtras')
 export const driveHash = /^[a-f0-9]{64}$/
 export const driveFileId = /^[A-Za-z0-9_-]{1,256}$/
 export const driveMediaRef = /^sylunae-drive:(path|inline|note):([a-f0-9]{64})(\.[a-z0-9]{1,10})?$/
@@ -26,7 +27,10 @@ export const driveManifestSchema = z.object({
   device: z.string(),
   ancestors: z.array(z.string().regex(driveFileId)).max(ancestorWindow).optional(),
   writeId: z.uuid().optional(),
-  sections: z.record(z.enum(driveSectionKeys), driveObjectSchema),
+  sections: z.object({
+    ...Object.fromEntries(requiredDriveSections.map((key) => [key, driveObjectSchema])) as Record<typeof requiredDriveSections[number], typeof driveObjectSchema>,
+    collectionExtras: driveObjectSchema.optional(),
+  }).strict(),
   media: z.array(driveObjectSchema),
   counts: z.object({
     notes: z.number().int().nonnegative(),
@@ -163,6 +167,15 @@ export async function mapDriveSnapshotMedia(snapshot: AppSnapshot, map: DriveMed
     })),
     albums: await mapItems(snapshot.albums, async (album) => ({ ...album, cover: await inline(album.cover, `${album.title}封面`) })),
     notes: await mapItems(snapshot.notes, async (note) => ({ ...note, content: await noteNode(note.content, note.title || '笔记附件') })),
+    collectionExtras: {
+      ...snapshot.collectionExtras,
+      stickerPacks: await mapItems(snapshot.collectionExtras.stickerPacks, async (pack) => ({
+        ...pack,
+        stickers: await mapItems(pack.stickers, async (sticker) => ({
+          ...sticker, src: await map(sticker.src, 'note', sticker.name || sticker.fileName),
+        })),
+      })),
+    },
     imageLibrary: {
       ...snapshot.imageLibrary,
       assets: await mapItems(snapshot.imageLibrary.assets, async (asset) => ({ ...asset, path: await path(asset.path, asset.name) })),

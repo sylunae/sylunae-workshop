@@ -537,7 +537,32 @@ export interface BirthdayState {
   deliveries: Record<string, { occurrence: string; count: number; lastSentAt: string }>
 }
 
+export interface MemeEntry {
+  id: string
+  text: string
+  createdAt: string
+}
+
+export interface Sticker {
+  id: string
+  name: string
+  fileName: string
+  src: string
+}
+
+export interface StickerPack {
+  id: string
+  name: string
+  stickers: Sticker[]
+}
+
+export interface CollectionExtras {
+  memes: MemeEntry[]
+  stickerPacks: StickerPack[]
+}
+
 export interface AppSnapshot {
+  collectionExtras: CollectionExtras
   version: 1
   settings: AppSettings
   bangumi: BangumiProfileCache | null

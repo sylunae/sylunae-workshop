@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useState } from 'react'
 import { usePersistentState, useSessionState } from '../lib/usePersistentState'
 import type { ToolId } from '../shared/types'
-import { readWorkspaceRoute, workspaceHref, type Workspace, type WorkspaceView } from './workspaceRoutes'
+import { readWorkspaceRoute, workspaceHref, workspacePaths, type Workspace, type WorkspaceView } from './workspaceRoutes'
 
 export function useWorkspaceNavigation() {
   const [storedTool, setStoredTool] = useSessionState<ToolId>('navigation.activeTool', 'home')
@@ -14,7 +14,7 @@ export function useWorkspaceNavigation() {
 
   const activeTool = route?.tool ?? storedTool
   const taskView = route?.tool === 'tasks' ? route.view : storedTask
-  const collectionView = route?.tool === 'collection' ? route.view : storedCollection === 'images' ? 'images' : 'bangumi'
+  const collectionView = route?.tool === 'collection' ? route.view : Object.hasOwn(workspacePaths.collection, storedCollection) ? storedCollection : 'bangumi'
   const musicRoute = route?.tool === 'music' ? route.view : undefined
   const musicSection = musicRoute ? musicRoute === 'white-noise' ? 'white-noise' : 'library' : storedSection
   const musicView = musicRoute && musicRoute !== 'white-noise' ? musicRoute : storedMusic

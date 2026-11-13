@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
-import { Album, BookHeart, BookOpen, Boxes, CalendarClock, ChevronDown, ChevronRight, CloudRain, Download, Images, Library, ListChecks, ListTodo, Menu, MoreHorizontal, Music2, NotebookPen, Settings, Sparkles, Target } from 'lucide-react'
+import { Album, BookHeart, BookOpen, Boxes, CalendarClock, ChevronDown, ChevronRight, CloudRain, Download, Images, Library, ListChecks, ListTodo, Menu, MoreHorizontal, Music2, NotebookPen, Settings, Smile, Sparkles, Sticker, Target } from 'lucide-react'
 import { useMediaQuery } from '../lib/useMediaQuery'
-import { workspaceHref } from '../app/workspaceRoutes'
+import { workspaceHref, type WorkspaceView } from '../app/workspaceRoutes'
 import { WorkspaceLink } from './WorkspaceLink'
 import type { MusicTrack, ResourceItem, ToolId } from '../shared/types'
 import { BrandMark } from './Icons'
@@ -71,7 +71,7 @@ function downloadAndroidApp() {
 export function Sidebar({ active, taskView, collectionView, musicSection, musicView, collapsed, width, mobileOpen, settingsOpen, funFeaturesOpen, nowPlaying, nowPlayingAmbient, onSelect, onSelectTaskView, onSelectCollectionView, onSelectMusicSection, onSelectMusicView, onOpenSettings, onOpenFunFeatures, onResize, onOpen, onClose }: {
   active: ToolId
   taskView: 'goals' | 'todos' | 'pomodoro' | 'countdown'
-  collectionView: 'bangumi' | 'images'
+  collectionView: WorkspaceView<'collection'>
   musicSection: 'library' | 'white-noise'
   musicView: 'tracks' | 'albums'
   collapsed: boolean
@@ -83,7 +83,7 @@ export function Sidebar({ active, taskView, collectionView, musicSection, musicV
   nowPlayingAmbient: ResourceItem | null
   onSelect: (tool: ToolId) => void
   onSelectTaskView: (view: 'goals' | 'todos' | 'pomodoro' | 'countdown') => void
-  onSelectCollectionView: (view: 'bangumi' | 'images') => void
+  onSelectCollectionView: (view: WorkspaceView<'collection'>) => void
   onSelectMusicSection: (section: 'library' | 'white-noise') => void
   onSelectMusicView: (view: 'tracks' | 'albums') => void
   onOpenSettings: () => void
@@ -178,6 +178,8 @@ export function Sidebar({ active, taskView, collectionView, musicSection, musicV
               </> : id === 'collection' ? <>
                 <WorkspaceLink className={current && collectionView === 'bangumi' ? 'active' : ''} aria-current={current && collectionView === 'bangumi' ? 'page' : undefined} href={workspaceHref('collection', 'bangumi')} onNavigate={() => { onSelectCollectionView('bangumi'); onClose() }} title="Bangumi"><BookOpen size={17} strokeWidth={1.7} /><span>Bangumi</span></WorkspaceLink>
                 <WorkspaceLink className={current && collectionView === 'images' ? 'active' : ''} aria-current={current && collectionView === 'images' ? 'page' : undefined} href={workspaceHref('collection', 'images')} onNavigate={() => { onSelectCollectionView('images'); onClose() }} title="精选图片"><Images size={17} strokeWidth={1.7} /><span>精选图片</span></WorkspaceLink>
+                <WorkspaceLink className={current && collectionView === 'memes' ? 'active' : ''} aria-current={current && collectionView === 'memes' ? 'page' : undefined} href={workspaceHref('collection', 'memes')} onNavigate={() => { onSelectCollectionView('memes'); onClose() }} title="梗收集"><Smile size={17} strokeWidth={1.7} /><span>梗收集</span></WorkspaceLink>
+                <WorkspaceLink className={current && collectionView === 'stickers' ? 'active' : ''} aria-current={current && collectionView === 'stickers' ? 'page' : undefined} href={workspaceHref('collection', 'stickers')} onNavigate={() => { onSelectCollectionView('stickers'); onClose() }} title="表情包"><Sticker size={17} strokeWidth={1.7} /><span>表情包</span></WorkspaceLink>
               </> : <>
                 <WorkspaceLink className={current && musicSection === 'library' && musicView === 'tracks' ? 'active' : ''} aria-current={current && musicSection === 'library' && musicView === 'tracks' ? 'page' : undefined} href={workspaceHref('music', 'tracks')} onNavigate={() => { onSelectMusicView('tracks'); onClose() }} title="歌曲"><Music2 size={17} strokeWidth={1.7} /><span>歌曲</span></WorkspaceLink>
                 <WorkspaceLink className={current && musicSection === 'library' && musicView === 'albums' ? 'active' : ''} aria-current={current && musicSection === 'library' && musicView === 'albums' ? 'page' : undefined} href={workspaceHref('music', 'albums')} onNavigate={() => { onSelectMusicView('albums'); onClose() }} title="专辑"><Album size={17} strokeWidth={1.7} /><span>专辑</span></WorkspaceLink>

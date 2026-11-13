@@ -2,7 +2,7 @@ export const workspacePaths = {
   home: { home: '/' },
   notes: { home: '/notes' },
   tasks: { goals: '/tasks/goals', todos: '/tasks/todos', pomodoro: '/tasks/pomodoro', countdown: '/tasks/countdown' },
-  collection: { bangumi: '/collection/bangumi', images: '/collection/images' },
+  collection: { bangumi: '/collection/bangumi', images: '/collection/images', memes: '/collection/memes', stickers: '/collection/stickers' },
   music: { tracks: '/music/tracks', albums: '/music/albums', 'white-noise': '/music/white-noise' },
   tools: {
     home: '/tools',

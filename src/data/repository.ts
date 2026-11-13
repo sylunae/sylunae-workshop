@@ -1,4 +1,4 @@
-import { externalizeNoteImages } from './noteAssets'
+import { createImageExternalizer, externalizeNoteImages, mapStickerImages } from './noteAssets'
 import { applicationDatabaseName } from '../lib/storageEnvironment'
 import { resolveAndroidFiles } from '../platform/transfer'
 import Dexie, { type EntityTable } from 'dexie'
@@ -199,6 +199,7 @@ export const repository = {
     let safe = normalize(snapshot)
     if (window.sylunae?.platform === 'android') safe = await resolveAndroidFiles(safe, window.sylunae.music.checkPaths)
     safe.notes = await externalizeNoteImages(safe.notes)
+    safe.collectionExtras = await mapStickerImages(safe.collectionExtras, createImageExternalizer())
     if (window.sylunae) {
       if (whiteNoise === undefined) await window.sylunae.storage.replace(safe)
       else await window.sylunae.storage.replace(safe, whiteNoise)

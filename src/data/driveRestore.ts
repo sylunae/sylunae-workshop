@@ -23,7 +23,10 @@ export async function restoreDriveSnapshot(
     return file
   }
   const sections: Record<string, unknown> = {}
-  for (const key of driveSectionKeys) sections[key] = await readJson(await download(manifest.sections[key]))
+  for (const key of driveSectionKeys) {
+    const object = manifest.sections[key]
+    if (object) sections[key] = await readJson(await download(object))
+  }
   const { customWhiteNoise, ...state } = sections
   const transform: DriveMediaTransform = async (source, expected) => {
     const ref = driveMediaRef.exec(source)

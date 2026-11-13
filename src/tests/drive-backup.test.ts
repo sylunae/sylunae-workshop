@@ -128,6 +128,12 @@ it('uploads separate verified objects, reuses media on a note edit, and keeps th
       createdAt: snapshot.settings.updatedAt, updatedAt: snapshot.settings.updatedAt, content: { type: 'doc', content: [
       { type: 'image', attrs: { src: 'data:image/png;base64,' + Buffer.from('original image').toString('base64') } },
     ] } }]
+    snapshot.collectionExtras = {
+      memes: [{ id: 'meme', text: '测试梗', createdAt: dates.createdAt }],
+      stickerPacks: [{ id: 'pack', name: '贴图包', stickers: [{
+        id: 'sticker', name: '', fileName: 'test.png', src: 'data:image/png;base64,' + Buffer.from('original image').toString('base64'),
+      }] }],
+    }
     mock.load.mockImplementation(() => snapshot)
     const drive = setupDrive()
     registerGoogleDriveBackup()
@@ -161,6 +167,10 @@ it('uploads separate verified objects, reuses media on a note edit, and keeps th
     expect(await call('preview-restore')).toMatchObject({ downloadFiles: 0, downloadBytes: 0, reuseFiles: restored.downloaded })
     expect(await call('download', latest.id)).toMatchObject({ downloaded: 0, reused: restored.downloaded })
     expect(restored.snapshot.notes[0].title).toBe('改过的笔记')
+    expect(restored.snapshot.collectionExtras.memes).toEqual(snapshot.collectionExtras.memes)
+    expect(restored.snapshot.collectionExtras.stickerPacks[0].stickers[0]).toEqual({
+      ...snapshot.collectionExtras.stickerPacks[0].stickers[0], src: 'sylunae-note-asset:' + hash(Buffer.from('original image')),
+    })
     expect((await readFile(restored.snapshot.tracks[0].path)).equals(music)).toBe(true)
     expect(await readFile(restored.snapshot.imageLibrary.assets[0].path, 'utf8')).toBe('original image')
 

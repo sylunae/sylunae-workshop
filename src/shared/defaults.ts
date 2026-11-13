@@ -47,6 +47,7 @@ export function createDefaultSnapshot(): AppSnapshot {
       updatedAt: now,
     },
     bangumi: null,
+    collectionExtras: { memes: [], stickerPacks: [] },
     imageLibrary: { roots: [], collections: [], assets: [] },
     tracks: [],
     albums: [],

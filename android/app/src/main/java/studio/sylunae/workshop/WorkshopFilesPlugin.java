@@ -77,7 +77,7 @@ public class WorkshopFilesPlugin extends Plugin {
                 } else if (key.equals("notes")) {
                     JSONArray notes = patch.getJSONArray(key); ChunkedRecords.clear(database,"notes");
                     for (int i=0;i<notes.length();i++) { JSONObject note = notes.getJSONObject(i); putRecord("notes", note.getString("id"), note); }
-                } else if (Arrays.asList("version", "settings", "bangumi", "tracks", "albums", "folders", "goals", "todos", "recurringTodos", "todoCompletionRecords", "pomodoro", "countdowns", "clipboardSnippets", "launcherLinks", "birthdays", "imageLibrary").contains(key)) putRecord("records", key, patch.get(key));
+                } else if (Arrays.asList("version", "settings", "bangumi", "tracks", "albums", "folders", "goals", "todos", "recurringTodos", "todoCompletionRecords", "pomodoro", "countdowns", "clipboardSnippets", "launcherLinks", "birthdays", "imageLibrary", "collectionExtras").contains(key)) putRecord("records", key, patch.get(key));
             }
             database.setTransactionSuccessful();
         } finally { database.endTransaction(); }

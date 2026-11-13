@@ -1,7 +1,7 @@
 import { isAndroid } from '../platform/environment'
 import { version as appVersion } from '../../package.json'
 import { portableBackupMedia } from '../platform/portableAssets'
-import { portableNoteSnapshot } from '../data/noteAssets'
+import { mapStickerImages, noteImageDataUrl, portableNoteSnapshot } from '../data/noteAssets'
 import { useEffect, useRef, useState } from 'react'
 import { BellRing, Check, CheckCircle2, ClipboardPaste, Code2, Copy, Database, Download, ExternalLink, EyeOff, FileWarning, FolderOpen, Globe2, HardDrive, Info, Laptop, Link2, Moon, PackageOpen, Palette, Play, RotateCcw, Settings, ShieldCheck, Sparkles, Sun, Undo2, Upload, UserRound, X } from 'lucide-react'
 import { useAppStore } from '../app/AppStore'
@@ -125,7 +125,12 @@ function SettingsPanel() {
       const current = await flush()
       if (!current) return
       const item = partialBackupSectionMeta.find((entry) => entry.id === section)!
-      const backup = createPartialBackup(section === 'notes' && !window.sylunae ? await portableNoteSnapshot(current) : current, section)
+      let portable = current
+      if (!window.sylunae && section === 'notes') portable = await portableNoteSnapshot(current)
+      if (!window.sylunae && section === 'collection') {
+        portable = { ...current, collectionExtras: await mapStickerImages(current.collectionExtras, noteImageDataUrl) }
+      }
+      const backup = createPartialBackup(portable, section)
       const contents = JSON.stringify(window.sylunae ? await portableBackupMedia(backup) : backup, null, 2)
       await downloadContents(contents, `siyue-${section}-backup-${new Date().toISOString().slice(0, 10)}.json`, `“${item.label}”局部备份已导出。`)
     } catch { setMessage('导出失败：请确认笔记图片可读取，并重试。') }
