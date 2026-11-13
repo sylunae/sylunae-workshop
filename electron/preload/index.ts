@@ -11,6 +11,16 @@ async function withDriveProgress<T>(channel: string, argument: string, listener:
 
 const api: SylunaeAPI = {
   platform: 'electron',
+  translation: {
+    openWeb: (request) => ipcRenderer.invoke('translation:open-web', request),
+    status: () => ipcRenderer.invoke('translation:status'),
+    save: (value) => ipcRenderer.invoke('translation:save', value),
+    clear: () => ipcRenderer.invoke('translation:clear'),
+    languages: () => ipcRenderer.invoke('translation:languages'),
+    translate: (request) => ipcRenderer.invoke('translation:translate', request),
+    readClipboard: () => ipcRenderer.invoke('translation:read-clipboard'),
+    writeClipboard: (value) => ipcRenderer.invoke('translation:write-clipboard', value),
+  },
   driveBackup: {
     notebook: {
       latest: () => ipcRenderer.invoke('drive:notebook-latest'),

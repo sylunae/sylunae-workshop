@@ -12,6 +12,7 @@ import {
   ArrowLeftRight,
   ArrowUpDown,
   Link2,
+  Languages,
   Music,
   Pencil,
   Plus,
@@ -49,6 +50,7 @@ import { BirthdayTool } from '../components/BirthdayTool';
 import { AudioEditor } from "../components/AudioEditor";
 import { ImageProcessor } from "../components/ImageProcessor";
 import { FormatConverter } from "../components/FormatConverter";
+import { TranslationTool } from "../components/TranslationTool";
 
 type ToolView = WorkspaceView<"tools">;
 type ClipboardSort = "recent" | "frequent";
@@ -56,6 +58,7 @@ type ClipboardSort = "recent" | "frequent";
 const tempoAnalyzerUrl = "https://tuanziai.com/audio-tools/tempo-analyze";
 
 const toolCards = [
+  { id: "translation" as const, title: "翻译", description: "自动识别语言，翻译并保存常用译文。", icon: Languages, accent: "blue" },
   { id: "music-toolbox" as const, title: "音乐工具箱", description: "在工坊内使用团子 AI 的节拍分析与校准工具。", icon: Music, accent: "blue" },
   { id: "conversion" as const, title: "格式转换", description: "识别图片、视频、音频与文档格式，批量转换或提取音轨。", icon: ArrowLeftRight, accent: "blue" },
   { id: "birthdays" as const, title: "生日通知", description: "记住重要的日子，提前送来生日提醒与祝福。", icon: Cake, accent: "rose" },
@@ -106,7 +109,7 @@ export function ToolsPage({
       <header className="page-header">
         <div>
           <span className="eyebrow">UTILITY BOX</span>
-          <h1>{showMusicToolbox ? "音乐工具箱" : "工具箱"}</h1>
+          <h1>{view === "translation" ? "翻译" : showMusicToolbox ? "音乐工具箱" : "工具箱"}</h1>
           <p>
             {view === "home" ? (
               "轻量、顺手，并且只在需要时出现"
@@ -154,6 +157,7 @@ export function ToolsPage({
         </>
       )}
       {view === "clipboard" && <ClipboardTool />}
+      {view === "translation" && <TranslationTool />}
       {view === "launcher" && <LauncherTool />}
       {view === "image" && <ImageProcessor />}
       {view === "audio" && <AudioEditor />}

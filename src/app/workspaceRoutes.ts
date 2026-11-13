@@ -7,6 +7,7 @@ export const workspacePaths = {
   tools: {
     home: '/tools',
     clipboard: '/tools/clipboard',
+    translation: '/tools/translation',
     launcher: '/tools/launcher',
     image: '/tools/image',
     audio: '/tools/audio',

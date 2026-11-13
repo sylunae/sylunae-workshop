@@ -10,6 +10,7 @@ import { mediaSource } from './mediaSource'
 import { decodeBytes, encodeBytes } from './binary'
 import { nativeChunkSize, readAndroidSnapshot, writeAndroidSnapshot } from './androidStorage'
 import { createAndroidDriveBackup } from './androidDriveBackup'
+import { androidTranslation } from './translation'
 export { decodeBytes, encodeBytes } from './binary'
 
 interface FilesPlugin {
@@ -65,6 +66,7 @@ export function createAndroidAPI(): SylunaeAPI {
   const converted = new Map<string, { name: string; blob: Blob }>()
   return {
     platform: 'android',
+    translation: androidTranslation,
     driveBackup: createAndroidDriveBackup(run),
     storage: {
       load: async () => resolveAndroidFiles({ ...createDefaultSnapshot(), ...await readAndroidSnapshot(run) }, checkPaths),

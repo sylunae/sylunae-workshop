@@ -594,6 +594,7 @@ export type AppUpdateStatus =
   | { phase: 'ready' | 'installing'; version: string }
 
 export interface SylunaeAPI {
+  translation: import('./translation').TranslationClient
   driveBackup?: import('./driveBackup').DriveBackupAPI
   updates?: {
     getStatus: () => Promise<AppUpdateStatus>

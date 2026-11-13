@@ -1,3 +1,4 @@
+import { registerTranslation } from './translation'
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, protocol, shell } from 'electron'
 import { registerAppUpdates } from './appUpdates'
 import { driveMediaPath, registerGoogleDriveBackup } from './googleDriveBackup'
@@ -935,6 +936,7 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  registerTranslation()
   registerGoogleDriveBackup()
   const cleanConversions = registerFormatConversion()
   registerImageProcessing(cleanConversions)
