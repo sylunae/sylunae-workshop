@@ -59,7 +59,7 @@ it('uploads only the changed note and pulls it alongside an unrelated local edit
   expect(api.put).toHaveBeenCalledTimes(2)
 })
 
-it('uses the last full backup as a base on upgrade and keeps both simultaneous edits', async () => {
+it('uses the last full backup as a base on upgrade and never publishes a conflicting edit', async () => {
   const { api, sync, apply } = setup()
   const original = notebook(note('a'))
   api.legacy.mockImplementation(async () => ({ id: 'full', notebook: original, assets: [] }))
@@ -68,8 +68,27 @@ it('uses the last full backup as a base on upgrade and keeps both simultaneous e
   const phone = await sync(original, undefined, 'full')
   expect(apply.mock.lastCall?.[1].notes.map(({ title }) => title)).toEqual(['电脑编辑'])
   expect(phone?.conflicts).toBe(0)
-  await sync(notebook(note('a', '手机编辑')), base?.id)
-  expect(apply.mock.lastCall?.[1].notes.map(({ title }) => title)).toEqual(['手机编辑', '电脑编辑（同步冲突副本）'])
+  apply.mockClear()
+  api.publish.mockClear()
+  expect(await sync(notebook(note('a', '手机编辑')), base?.id)).toEqual({ id: undefined, conflicts: 1 })
+  expect(apply).not.toHaveBeenCalled()
+  expect(api.publish).not.toHaveBeenCalled()
+})
+
+it('rejects the old client conflict revision before it can replace the newer original on desktop', async () => {
+  const { api, sync, apply } = setup()
+  const desktop = notebook(note('a', '电脑最新正文'))
+  const base = await sync(desktop)
+  const original = (await api.latest())!.notes[0]
+  const copyId = 'drive-conflict-' + createHash('sha256').update('a:' + original.object.sha256).digest('hex')
+  // Reproduce the old phone client publishing its stale original and a copy of the desktop version.
+  await sync(notebook(note('a', '手机旧正文'), note(copyId, '电脑最新正文（同步冲突副本）')), base?.id)
+  const overwritten = await api.latest()
+  expect(overwritten!.id).not.toBe(base?.id)
+  api.publish.mockClear()
+  expect(await sync(desktop, base?.id)).toEqual({ id: undefined, conflicts: 1 })
+  expect(apply).not.toHaveBeenCalled()
+  expect(api.publish).not.toHaveBeenCalled()
 })
 
 it('propagates deletions and does not publish a partially applied pull', async () => {

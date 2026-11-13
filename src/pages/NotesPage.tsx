@@ -32,9 +32,31 @@ import { LinkBookmark } from '../editor/linkBookmark'
 import { isImageNodeSelection, NoteImage, readImageFile } from '../editor/noteImage'
 import { markdownExport, markdownFileName, splitMarkdownNote } from '../editor/noteMarkdown'
 import { usePersistentState } from '../lib/usePersistentState'
+import { RefreshCw } from 'lucide-react'
 
 type FolderFilter = 'all' | 'trash' | string
 const NoteDetailsSummary = DetailsSummary.extend({ content: 'inline*' })
+
+function NotebookSyncButton() {
+  const { driveSync } = useAppStore()
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  if (!driveSync.syncNotebookNow) return null
+  const sync = async () => {
+    setBusy(true)
+    setMessage('')
+    try { setMessage(await driveSync.syncNotebookNow!()) }
+    catch (error) {
+      setMessage(error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : '笔记同步失败，请重试。')
+    } finally { setBusy(false) }
+  }
+  return <>
+    <Button variant="outline" className="button" disabled={busy} onClick={() => void sync()}>
+      <RefreshCw size={17} />{busy ? '同步中…' : '立即同步'}
+    </Button>
+    {message && <span className="notebook-sync-message" role="status">{message}</span>}
+  </>
+}
 
 export function NotesPage({ createOnOpen = false }: { createOnOpen?: boolean }) {
   const { snapshot, snapshotEpoch, noteRevisions, update } = useAppStore()
@@ -111,7 +133,7 @@ const NotesWorkspace = memo(function NotesWorkspace({ notes, folders, snapshotEp
   }
 
   return <section className="page notes-page">
-    <header className="page-header compact"><div><span className="eyebrow">NOTES</span><h1>笔记</h1></div><div className="notes-page-actions"><Button variant="outline" className="button notes-browser-trigger" onClick={() => setBrowserOpen(true)}><NotebookPen size={17} />笔记列表</Button><Button className="button primary" onClick={addNote}><Plus size={17} />新建笔记</Button></div></header>
+    <header className="page-header compact"><div><span className="eyebrow">NOTES</span><h1>笔记</h1></div><div className="notes-page-actions"><NotebookSyncButton /><Button variant="outline" className="button notes-browser-trigger" onClick={() => setBrowserOpen(true)}><NotebookPen size={17} />笔记列表</Button><Button className="button primary" onClick={addNote}><Plus size={17} />新建笔记</Button></div></header>
     <div className="notes-workspace">
       <aside className="folder-pane">
         <button className={folderFilter === 'all' ? 'active' : ''} onClick={() => setFolderFilter('all')} title="全部笔记"><NotebookPen size={17} />全部笔记<span>{counts.all}</span></button>

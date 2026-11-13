@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Album, ArrowRight, CheckSquare2, CloudRain, Disc3, FileMusic, FolderOpen, ListMusic, LocateFixed, MoreHorizontal, Music2, Pause, PencilLine, Play, Plus, Repeat, Repeat1, Search, Shuffle, SkipBack, SkipForward, Trash2, Volume1, Volume2, X } from 'lucide-react'
+import { Album, ArrowRight, CheckSquare2, CloudRain, Disc3, FileMusic, FolderOpen, Link2, ListMusic, LocateFixed, MoreHorizontal, Music2, Pause, PencilLine, Play, Plus, Repeat, Repeat1, Search, Shuffle, SkipBack, SkipForward, Trash2, Volume1, Volume2, X } from 'lucide-react'
 import { useAppStore } from '../app/AppStore'
 import type { MusicAlbum, MusicMetadataUpdate, MusicTrack } from '../shared/types'
 import { formatDuration } from '../utils'
@@ -12,6 +12,7 @@ import { Slider } from '../components/ui/slider'
 import { MusicMetadataSheet } from '../components/MusicMetadataSheet'
 import { MusicAlbumSheet } from '../components/MusicAlbumSheet'
 import { MusicImportDialog } from '../components/MusicImportDialog'
+import { OnlineMusicDialog, type ResolvedOnlineMusic } from '../components/OnlineMusicDialog'
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { AudioWaveform } from '../components/AudioWaveform'
 import { adjacentTrack, playbackQueue } from '../music/playback'
@@ -59,9 +60,13 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
   const [editTarget, setEditTarget] = useState<MusicTrack | null>(null)
   const [albumTarget, setAlbumTarget] = useState<MusicAlbum | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [onlineOpen, setOnlineOpen] = useState(false)
+  const [onlineTrack, setOnlineTrack] = useState<MusicTrack | null>(null)
   const audio = useRef<HTMLAudioElement>(null)
+  const playbackRequest = useRef(0)
+  const onlineSource = useRef<{ url: string; refreshed: boolean } | null>(null)
   const releasingForEdit = useRef(false)
-  const current = tracks.find((track) => track.id === currentId) || null
+  const current = onlineTrack ?? tracks.find((track) => track.id === currentId) ?? null
   const currentCover = current ? trackCover(current, albums, tracks) : ''
   const filtered = useMemo(() => tracks.filter((track) => `${track.title} ${track.artist} ${track.album}`.toLowerCase().includes(query.toLowerCase())), [tracks, query])
   const filteredAlbums = useMemo(() => albums.filter((album) => `${album.title} ${album.artist}`.toLowerCase().includes(query.toLowerCase())), [albums, query])
@@ -132,6 +137,7 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
 
   const playTrack = async (track: MusicTrack, albumId: string | null = null) => {
     if (!window.sylunae || track.missing) return
+    const request = ++playbackRequest.current
     setQueueAlbumId(albumId)
     setPlayerError('')
     try {
@@ -143,14 +149,62 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
         return
       }
       const url = await window.sylunae.music.getAudioUrl(track.path)
+      if (request !== playbackRequest.current || !audio.current) return
+      onlineSource.current = null
+      setOnlineTrack(null)
       setAudioUrl(url)
-      if (currentId !== track.id && audio.current) {
+      if (audio.current.src !== url) {
         audio.current.src = url
-        setCurrentId(track.id)
       }
-      await audio.current?.play()
-      setPlaying(true)
-    } catch { setPlayerError('无法播放这个文件，请确认文件仍然存在。') }
+      setCurrentId(track.id)
+      await audio.current.play()
+    } catch {
+      if (request === playbackRequest.current) setPlayerError('无法播放这个文件，请确认文件仍然存在。')
+    }
+  }
+
+  const playOnline = (url: string, music: ResolvedOnlineMusic) => {
+    const element = audio.current
+    if (!element) return
+    const request = ++playbackRequest.current
+    const now = new Date().toISOString()
+    onlineSource.current = { url, refreshed: false }
+    setOnlineTrack({
+      id: url, path: '', title: music.title, artist: music.artist, album: '在线音乐',
+      albumArtist: '', albumId: null, duration: music.duration, cover: music.cover,
+      missing: false, createdAt: now, updatedAt: now,
+    })
+    setCurrentId(null)
+    setPlaying(false)
+    setQueueAlbumId(null)
+    setPlayerError('')
+    setAudioUrl('')
+    setPosition(0)
+    setDuration(music.duration)
+    element.src = music.streamUrl
+    void element.play().catch(() => {
+      if (request === playbackRequest.current && !element.error) setPlayerError('无法播放在线音乐，请重试。')
+    })
+  }
+
+  const recoverOnlinePlayback = async () => {
+    const element = audio.current
+    const source = onlineSource.current
+    const resolve = window.sylunae?.music.resolveYoutubeAudio
+    if (!source || !element || !resolve) return
+    if (source.refreshed) { setPlayerError('在线音频加载失败，请重新打开链接。'); return }
+    source.refreshed = true
+    const request = playbackRequest.current
+    try {
+      const music = await resolve(source.url)
+      if (request !== playbackRequest.current || onlineSource.current !== source) return
+      const resumeAt = element.currentTime
+      element.src = music.streamUrl
+      if (resumeAt > 0) element.currentTime = resumeAt
+      await element.play()
+    } catch {
+      if (request === playbackRequest.current) setPlayerError('在线音频加载失败，请重新打开链接。')
+    }
   }
 
   const adjacent = (direction: 1 | -1) => {
@@ -167,11 +221,17 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
       return
     }
     if (!audio.current) return
-    if (playing) { audio.current.pause(); setPlaying(false) } else void audio.current.play().then(() => setPlaying(true))
+    if (playing) { audio.current.pause(); setPlaying(false) }
+    else if (onlineTrack && audio.current.error) {
+      if (onlineSource.current) onlineSource.current.refreshed = false
+      setPlayerError('')
+      void recoverOnlinePlayback()
+    } else void audio.current.play().catch(() => setPlayerError('无法继续播放，请重试。'))
   }
 
   const onEnded = () => {
-    if (repeat === 'one' && audio.current) { audio.current.currentTime = 0; void audio.current.play(); return }
+    if (repeat === 'one' && audio.current) { audio.current.currentTime = 0; void audio.current.play().catch(() => {}); return }
+    if (onlineTrack) { setPlaying(false); return }
     if (repeat === 'off' && currentId === queue.at(-1)?.id && !shuffle) { setPlaying(false); return }
     adjacent(1)
   }
@@ -312,10 +372,10 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
   if (!window.sylunae) return <section className="page"><header className="page-header"><div><span className="eyebrow">MUSIC</span><h1>音乐</h1><p>属于你的安静播放器</p></div><Button className="button secondary" onClick={onOpenWhiteNoise}><CloudRain size={17} />白噪音<ArrowRight size={15} /></Button></header><EmptyState icon={<Music2 size={27} />} title="客户端专属" description="请使用支持本地音乐库的丝月工坊客户端建立你的音乐资料库。" /></section>
 
   return <section className="page music-page">
-    <header className="page-header"><div><span className="eyebrow">MUSIC</span><h1>音乐</h1><p>{tracks.length ? `${tracks.length} 首本地音乐` : '让喜欢的声音留在手边'}</p></div><div className="music-header-actions"><Button className="button secondary" onClick={onOpenWhiteNoise}><CloudRain size={17} />白噪音<ArrowRight size={15} /></Button><Button className="button primary" onClick={() => setImportOpen(true)}><Plus size={17} />添加音乐</Button></div></header>
+    <header className="page-header"><div><span className="eyebrow">MUSIC</span><h1>音乐</h1><p>{tracks.length ? `${tracks.length} 首本地音乐` : '让喜欢的声音留在手边'}</p></div><div className="music-header-actions"><Button className="button secondary" onClick={onOpenWhiteNoise}><CloudRain size={17} />白噪音<ArrowRight size={15} /></Button>{window.sylunae.music.resolveYoutubeAudio && <Button className="button secondary" onClick={() => setOnlineOpen(true)}><Link2 size={17} />在线音乐</Button>}<Button className="button primary" onClick={() => setImportOpen(true)}><Plus size={17} />添加音乐</Button></div></header>
     <div
       className={`music-hero ${playing && currentCover ? 'is-playing' : ''}`}
-      style={{ '--music-hero-cover': currentCover ? `url(${currentCover})` : 'none' } as CSSProperties}
+      style={{ '--music-hero-cover': currentCover ? `url(${JSON.stringify(currentCover)})` : 'none' } as CSSProperties}
     >
       <div className="hero-art">{currentCover ? <img src={currentCover} alt="" /> : <Disc3 size={48} strokeWidth={1.2} />}</div>
       <div className="hero-copy"><span>正在播放</span><h2 className={current ? 'private-music-title' : undefined}>{current?.title || '还没有选择音乐'}</h2><p className={current ? 'user-content' : undefined}>{current ? `${current.artist} · ${current.album}` : '从资料库中选择一首，给此刻一点声音。'}</p></div>
@@ -353,7 +413,7 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
       })}</div> : <EmptyState icon={<Album size={26} />} title="没有匹配的专辑" description="已导入且包含专辑名称的歌曲会自动归类到这里。" />}
 
     <div className={`player-bar ${current ? 'visible' : ''}`}>
-      <audio ref={audio} onPlay={() => setPlaying(true)} onPause={() => { if (!releasingForEdit.current) setPlaying(false) }} onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)} onEnded={onEnded} onError={() => { if (!releasingForEdit.current) { setPlayerError('音频加载失败'); setPlaying(false) } }} />
+      <audio ref={audio} onPlaying={() => setPlaying(true)} onPause={() => { if (!releasingForEdit.current) setPlaying(false) }} onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)} onLoadedMetadata={(event) => { if (Number.isFinite(event.currentTarget.duration)) setDuration(event.currentTarget.duration) }} onEnded={onEnded} onError={() => { if (!releasingForEdit.current) { setPlaying(false); if (onlineSource.current) void recoverOnlinePlayback(); else setPlayerError('音频加载失败') } }} />
       <div className="player-track"><div className="tiny-cover large">{currentCover ? <img src={currentCover} alt="" /> : <ListMusic size={17} />}</div><div><strong className={current ? 'private-music-title' : undefined}>{current?.title || '未选择'}</strong><span className={current?.artist ? 'private-music-artist' : undefined}>{current?.artist || '—'}</span></div></div>
       <div className="player-center"><div className="player-controls"><button className={shuffle ? 'active' : ''} onClick={() => setShuffle(!shuffle)}><Shuffle size={16} /></button><button onClick={() => adjacent(-1)}><SkipBack size={18} fill="currentColor" /></button><button className="play-main" onClick={togglePlay}>{playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}</button><button onClick={() => adjacent(1)}><SkipForward size={18} fill="currentColor" /></button><button className={repeat !== 'off' ? 'active' : ''} onClick={() => setRepeat(repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off')}>{repeat === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}</button></div>
         <div className="progress-control"><span>{formatDuration(position)}</span><Slider min={0} max={Math.max(duration, 1)} step={1} value={[Math.min(position, duration || 0)]} onValueChange={([value]) => { if (isAndroid) void playerCommand('seek', { position: value }).catch(() => setPlayerError('无法调整播放进度')); else if (audio.current) audio.current.currentTime = value }} aria-label="播放进度" /><span>{formatDuration(duration)}</span></div></div>
@@ -362,6 +422,7 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
     {editTarget && <MusicMetadataSheet track={editTarget} albums={albums} onClose={() => setEditTarget(null)} onSave={saveMetadata} />}
     {albumTarget && <MusicAlbumSheet album={albumTarget} tracks={tracks.filter((track) => track.albumId === albumTarget.id)} onClose={() => setAlbumTarget(null)} onSave={(cover) => saveAlbumCover(albumTarget.id, cover)} onPlay={(track) => { void playTrack(track, albumTarget.id); setAlbumTarget(null) }} />}
     <MusicImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={addImportedTracks} />
+    {window.sylunae.music.resolveYoutubeAudio && <OnlineMusicDialog open={onlineOpen} onOpenChange={setOnlineOpen} onPlay={playOnline} />}
     <Dialog open={createAlbumOpen} onOpenChange={setCreateAlbumOpen}>
       <DialogContent className="music-album-action-dialog">
         <DialogHeader><DialogTitle>新建专辑</DialogTitle><DialogDescription>创建一个专辑，可以先留空，之后再把歌曲加入。</DialogDescription></DialogHeader>

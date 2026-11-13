@@ -79,6 +79,7 @@ const api: SylunaeAPI = {
     pickDownloadDirectory: (currentDirectory) => ipcRenderer.invoke('music:pick-download-directory', currentDirectory),
     importRemote: (input) => ipcRenderer.invoke('music:import-remote', input),
     searchYoutube: (query) => ipcRenderer.invoke('music:search-youtube', query),
+    resolveYoutubeAudio: (url) => ipcRenderer.invoke('music:resolve-youtube-audio', url),
     onImportProgress: (listener) => {
       const handler = (_event: Electron.IpcRendererEvent, progress: MusicImportProgress) => listener(progress)
       ipcRenderer.on('music:import-progress', handler)

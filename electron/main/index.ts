@@ -15,6 +15,7 @@ import sharp from 'sharp'
 import { configureDevelopmentProfile } from './developmentProfile'
 import { closeDatabase, getNoteAsset, putNoteAsset, loadSnapshot, replaceSnapshot, saveSnapshotPatch } from './database'
 import { getMediaToolPaths, getMediaToolsStatus, installMediaTools } from './mediaTools'
+import { youtubeVideoUrl } from '../../src/music/online'
 import { registerImageProcessing } from './imageProcessing'
 import { registerFormatConversion } from './formatConversion'
 import { downloadResource, getResourceAudioPath, importWhiteNoise, listResources, removeResource } from './resourceManager'
@@ -22,6 +23,7 @@ import type { AppSnapshot, AppSnapshotPatch, ImageAspectType, ImageAsset, ImageL
 
 // Keep development writes away from the installed application's profile.
 configureDevelopmentProfile(app)
+if (!app.requestSingleInstanceLock()) app.exit(0)
 
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga', '.flac', '.opus'])
 const AUDIO_MIME_TYPES: Record<string, string> = {
@@ -723,6 +725,33 @@ async function importYoutube(url: URL, directory: string, report: ProgressReport
   }
 }
 
+async function resolveYoutubeAudio(input: unknown) {
+  const url = typeof input === 'string' && input.length <= 4096 ? youtubeVideoUrl(input) : null
+  if (!url) throw new Error('请输入有效的 YouTube 视频链接')
+  const youtubeDl = createYoutubeDl(getMediaToolPaths().ytDlp)
+  const format = 'bestaudio[protocol=https][ext=webm]/bestaudio[protocol=https][ext=m4a]'
+  const metadata = await youtubeDl(url, {
+    dumpSingleJson: true, skipDownload: true, noPlaylist: true, ignoreConfig: true,
+    noWarnings: true, format, socketTimeout: 10, retries: 1, extractorRetries: 1,
+  }, { timeout: 30_000 }).catch(() => {
+    throw new Error('无法读取 YouTube 音频。请检查网络和视频是否可用，然后重试。')
+  })
+  if (typeof metadata === 'string' || !metadata.title) throw new Error('无法读取这个视频的信息')
+  if (metadata.is_live || metadata.live_status === 'is_upcoming') throw new Error('暂不支持直播或预定直播')
+  const stream = metadata.formats?.find(({ format_id }) => format_id === metadata.format_id)
+  const streamUrl = stream?.url ? new URL(stream.url) : null
+  if (streamUrl?.protocol !== 'https:' || !streamUrl.hostname.endsWith('.googlevideo.com')) {
+    throw new Error('这个视频没有可播放的在线音频')
+  }
+  return {
+    streamUrl: streamUrl.href,
+    title: metadata.title,
+    artist: metadata.channel || metadata.uploader || 'YouTube',
+    cover: metadata.thumbnail?.startsWith('https://') ? metadata.thumbnail : '',
+    duration: Number.isFinite(metadata.duration) ? metadata.duration : 0,
+  }
+}
+
 async function searchYoutubeVideos(query: unknown): Promise<YoutubeVideoSearchResult[]> {
   if (typeof query !== 'string') throw new Error('请输入搜索内容')
   const normalized = query.trim()
@@ -930,6 +959,7 @@ function registerIpc(): void {
   })
   ipcMain.handle('music:get-download-directory', () => getDefaultMusicDirectory())
   ipcMain.handle('music:search-youtube', (_event, query: unknown) => searchYoutubeVideos(query))
+  ipcMain.handle('music:resolve-youtube-audio', (_event, url: unknown) => resolveYoutubeAudio(url))
   ipcMain.handle('music:pick-download-directory', async (_event, currentDirectory: string) => {
     const defaultPath = typeof currentDirectory === 'string' && sessionDownloadDirectories.has(resolve(currentDirectory))
       ? resolve(currentDirectory)
@@ -1179,6 +1209,18 @@ function registerIpc(): void {
     }).show()
   })
 }
+
+app.on('second-instance', () => {
+  if (quitting) return
+  const [window] = BrowserWindow.getAllWindows()
+  if (!window) {
+    if (process.platform === 'darwin') createWindow()
+    return
+  }
+  if (window.isMinimized()) window.restore()
+  // Hidden windows are either waiting for the renderer theme or flushing pending writes before closing.
+  if (window.isVisible()) window.focus()
+})
 
 app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('studio.sylunae.workshop')

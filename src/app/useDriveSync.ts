@@ -41,6 +41,7 @@ export interface DriveSync {
   status: SyncStatus
   notebookSyncedAt?: string
   notebookMessage: string
+  syncNotebookNow?: () => Promise<string>
   setEnabled: (enabled: boolean) => void
   setPreviewOpen: (open: boolean) => void
   runManual: <T>(work: () => Promise<T>) => Promise<T>
@@ -102,6 +103,42 @@ export function useDriveSync(
     }
   }, [])
 
+  const syncNotebook = useCallback(async (local: AppSnapshot, accountId: string, canApply: () => boolean) => {
+    if (!api?.notebook || !applyNotebook) return null
+    const baseline = current.current.notebook
+    const legacy = current.current.base
+    const result = await syncDriveNotebook(api.notebook, local,
+      baseline?.accountId === accountId ? baseline.id : undefined,
+      legacy?.accountId === accountId ? legacy.id : undefined,
+      (expected, next) => canApply() ? applyNotebook(expected, next) : Promise.resolve(false))
+    if (result?.id && (result.id !== baseline?.id || baseline.accountId !== accountId)) {
+      saveSettings({ ...current.current, notebook: { accountId, id: result.id, syncedAt: new Date().toISOString() } })
+    }
+    if (result?.conflicts) setNotebookMessage('笔记同步已暂停：本机与云端的笔记版本不同。请先核对两端内容。')
+    else if (result) setNotebookMessage('')
+    return result
+  }, [api, applyNotebook, saveSettings])
+
+  const syncNotebookNow = useCallback(async () => {
+    if (previewOpen.current || closing.current) throw new Error('请先结束当前的 Google Drive 操作。')
+    await active.current?.catch(() => undefined)
+    return runManual(async () => {
+      if (previewOpen.current || closing.current) throw new Error('请先结束当前的 Google Drive 操作。')
+      if (!navigator.onLine) throw new Error('当前离线，联网后再同步。')
+      const connection = await api!.status()
+      if (!connection.connected) throw new Error('请先在设置中连接 Google Drive。')
+      const { id } = connection.account ?? await api!.account()
+      const boundAccount = current.current.base?.accountId ?? current.current.notebook?.accountId
+      if (boundAccount && boundAccount !== id) throw new Error('Google Drive 账号已更换，请先在设置中确认同步起点。')
+      const local = await flush()
+      if (!local) throw new Error('本地笔记尚未加载。')
+      const result = await syncNotebook(local, id, () => !closing.current && !suspended.current)
+      if (result?.conflicts) return '检测到笔记冲突，已保留本机和云端的内容。'
+      if (!result) return '有笔记正在编辑。结束编辑后再同步一次。'
+      return '笔记同步完成。'
+    })
+  }, [api, flush, runManual, syncNotebook])
+
   const sync = useCallback(async (allowPull: boolean) => {
     if (!api || !current.current.enabled || previewOpen.current || active.current) return
     const task = (async () => {
@@ -117,17 +154,9 @@ export function useDriveSync(
       const notebook = api.notebook
       if (notebook && applyNotebook && current.current.enabled) {
         try {
-          const baseline = current.current.notebook
-          const legacy = current.current.base
-          const result = await syncDriveNotebook(notebook, local, baseline?.accountId === account.id ? baseline.id : undefined,
-            legacy?.accountId === account.id ? legacy.id : undefined,
-            (expected, next) => allowPull && current.current.enabled && !closing.current && !suspended.current
-              ? applyNotebook(expected, next) : Promise.resolve(false))
-          if (result?.id && result.id !== baseline?.id) {
-            saveSettings({ ...current.current, notebook: { accountId: account.id, id: result.id, syncedAt: new Date().toISOString() } })
-          }
-          if (result?.conflicts) setNotebookMessage('笔记同步检测到冲突，已保留有内容的版本。请检查笔记本中的同步冲突副本。')
-          else setNotebookMessage((message) => message.startsWith('笔记同步暂时') ? '' : message)
+          const result = await syncNotebook(local, account.id,
+            () => allowPull && current.current.enabled && !closing.current && !suspended.current)
+          if (result?.conflicts) return
         } catch (error) {
           setNotebookMessage('笔记同步暂时失败，稍后会重试。' + (error instanceof Error ? error.message : ''))
         }
@@ -206,7 +235,7 @@ export function useDriveSync(
       }
       setStatus((value) => value.phase === 'syncing' ? { phase: 'idle' } : value)
     }
-  }, [api, flush, markSynced, replaceIfUnchanged, applyNotebook, saveSettings])
+  }, [api, flush, markSynced, replaceIfUnchanged, applyNotebook, saveSettings, syncNotebook])
 
   const loaded = Boolean(snapshot)
   useEffect(() => {
@@ -280,5 +309,6 @@ export function useDriveSync(
   return useMemo(() => ({
     enabled: settings.enabled, lastSyncedAt: settings.base?.syncedAt, status, setEnabled, markSynced, runManual, setPreviewOpen,
     notebookSyncedAt: settings.notebook?.syncedAt, notebookMessage,
-  }), [settings, status, setEnabled, markSynced, runManual, setPreviewOpen, notebookMessage])
+    syncNotebookNow: api?.notebook && applyNotebook ? syncNotebookNow : undefined,
+  }), [settings, status, setEnabled, markSynced, runManual, setPreviewOpen, notebookMessage, api, applyNotebook, syncNotebookNow])
 }

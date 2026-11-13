@@ -627,6 +627,7 @@ export interface SylunaeAPI {
     pickDownloadDirectory: (currentDirectory: string) => Promise<string | null>
     importRemote: (input: MusicRemoteImport) => Promise<MusicTrack>
     searchYoutube: (query: string) => Promise<YoutubeVideoSearchResult[]>
+    resolveYoutubeAudio?: (url: string) => Promise<{ streamUrl: string; title: string; artist: string; cover: string; duration: number }>
     onImportProgress: (listener: (progress: MusicImportProgress) => void) => () => void
     getMediaToolsStatus: () => Promise<MediaToolsStatus>
     installMediaTools: () => Promise<MediaToolsStatus>

@@ -1703,7 +1703,8 @@ input[type='range'] { height: 3px; accent-color: var(--brand); }
 /* Notes */
 .notes-page { overflow: hidden; display: flex; flex-direction: column; padding: 61px 0 0; }
 .notes-page .page-header { flex: 0 0 auto; margin-bottom: 0; padding: 0 clamp(24px, 3vw, 48px) 18px; }
-.notes-page-actions { display: flex; align-items: center; gap: 8px; }
+.notes-page-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.notebook-sync-message { order: 1; flex-basis: 100%; text-align: end; color: var(--muted-foreground); }
 .notes-browser-trigger { display: none; }
 .notes-workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: 185px 280px minmax(360px, 1fr); overflow: hidden; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 76%, transparent); }
 .folder-pane, .note-list-pane { min-height: 0; border-right: 1px solid var(--line); }

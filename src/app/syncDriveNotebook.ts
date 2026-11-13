@@ -106,7 +106,6 @@ export async function syncDriveNotebook(
       return row
     }
     const merged = new Map<string, Row>(localRows)
-    const copies = new Map<string, Row>()
     for (const id of new Set([...localRows.keys(), ...remote.keys(), ...legacyRows.keys(), ...previous.keys()])) {
       const here = localRows.get(id)
       const there = remote.get(id)
@@ -115,26 +114,24 @@ export async function syncDriveNotebook(
       const remoteHash = legacyRow ? await encode(legacyRow).digest : there?.object.sha256
       const baseHash = previous.get(id)
       if (localHash === remoteHash || remoteHash === baseHash) continue
+      // Older clients published the displaced version as a conflict copy. Do not
+      // interpret their replacement of the original as a clean remote edit.
+      if (here && remoteHash && !id.startsWith('drive-conflict-')) {
+        const displacedId = 'drive-conflict-' + await driveDigest(encoder.encode(id + ':' + localHash))
+        if (remote.has(displacedId)) {
+          conflicts++
+          continue
+        }
+      }
       if (localHash === baseHash || !here) {
-        if (!here && baseHash && remoteHash !== baseHash) conflicts++
+        if (!here && baseHash) { conflicts++; continue }
         if (remoteHash) merged.set(id, await fetchRow(id))
         else merged.delete(id)
         localChanged = true
       } else {
         conflicts++
-        if (remoteHash) {
-          const copyId = 'drive-conflict-' + await driveDigest(encoder.encode(id + ':' + remoteHash))
-          if (!localRows.has(copyId) && !remote.has(copyId) && !legacyRows.has(copyId)) {
-            const row = await fetchRow(id)
-            copies.set(copyId, 'title' in row
-              ? { ...row, id: copyId, title: row.title + '（同步冲突副本）' }
-              : { ...row, id: copyId, name: row.name + '（同步冲突副本）' })
-            localChanged = true
-          }
-        }
       }
     }
-    for (const [id, row] of copies) merged.set(id, row)
     if (kind === 'notes') next.notes = [...merged.values()] as Note[]
     else next.folders = [...merged.values()] as NoteFolder[]
     if (merged.size !== remote.size) cloudChanged = true
@@ -145,6 +142,7 @@ export async function syncDriveNotebook(
     }
   }
 
+  if (conflicts) return { id: undefined, conflicts }
   if (localChanged && !await apply(local, next)) return null
   if (!cloudChanged) return { id: head?.id, conflicts }
   for (const { kind, row } of needsUpload) {
