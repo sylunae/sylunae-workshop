@@ -14,7 +14,7 @@ export function useWorkspaceNavigation() {
 
   const activeTool = route?.tool ?? storedTool
   const taskView = route?.tool === 'tasks' ? route.view : storedTask
-  const collectionView = route?.tool === 'collection' ? route.view : storedCollection
+  const collectionView = route?.tool === 'collection' ? route.view : storedCollection === 'images' ? 'images' : 'bangumi'
   const musicRoute = route?.tool === 'music' ? route.view : undefined
   const musicSection = musicRoute ? musicRoute === 'white-noise' ? 'white-noise' : 'library' : storedSection
   const musicView = musicRoute && musicRoute !== 'white-noise' ? musicRoute : storedMusic
@@ -45,7 +45,7 @@ export function useWorkspaceNavigation() {
   useLayoutEffect(() => {
     const current = readWorkspaceRoute(currentHref)
     if (!current) return
-    if (readWorkspaceRoute(window.location.hash) !== current) {
+    if (window.location.hash !== currentHref) {
       window.history.replaceState(window.history.state, '', currentHref)
     }
     if (route !== current) setRoute(current)

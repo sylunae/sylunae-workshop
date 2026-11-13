@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, BookMarked, CalendarClock, CheckSquare2, ChevronRight, Clipboard, Cloud, CloudLightning, CloudRain, CloudSun, Clover, FileText, Image, ImagePlus, Images, ListChecks, MapPin, Music2, NotebookPen, RotateCcw, Rss, Search, SlidersHorizontal, Snowflake, Sun, Target, Timer, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, BookMarked, CalendarClock, CheckSquare2, ChevronRight, Clipboard, Cloud, CloudLightning, CloudRain, CloudSun, Clover, FileText, Image, ImagePlus, Images, ListChecks, MapPin, Music2, NotebookPen, RotateCcw, Search, SlidersHorizontal, Snowflake, Sun, Target, Timer, Trash2 } from 'lucide-react'
 import { useAppStore } from '../app/AppStore'
 import type { HomeIntent, HomeWallpaper, ToolId, WeatherLocation, WeatherSnapshot } from '../shared/types'
 import { defaultHomeQuickActions, homeQuickActionIds, maxHomeQuickActions, type HomeQuickActionId } from '../shared/homeQuickActions'
@@ -59,7 +59,6 @@ export function HomePage({ wallpaper, wallpaperSettingsOpen, onWallpaperSettings
     countdown: { label: '倒数日', hint: '看看离重要日子还有多久', icon: <CalendarClock />, tool: 'tasks', intent: 'countdown' },
     'white-noise': { label: '白噪音', hint: '打开环境音页面', icon: <CloudRain />, tool: 'music', intent: 'white-noise' },
     images: { label: '精选图片', hint: '打开图片收藏', icon: <Images />, tool: 'collection', intent: 'images' },
-    rss: { label: 'RSS 订阅', hint: '查看订阅内容', icon: <Rss />, tool: 'collection', intent: 'rss' },
     clipboard: { label: '剪贴板', hint: '查看保存的常用片段', icon: <Clipboard />, tool: 'tools', intent: 'clipboard' },
     notes: { label: '打开笔记', hint: '继续阅读或编辑已有笔记', icon: <NotebookPen />, tool: 'notes' },
   }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { CloudRain, Coffee, Download, Droplets, Flame, Headphones, LoaderCircle, Moon, Pause, Play, Plus, SkipBack, SkipForward, Sparkles, Timer, TrainFront, Trees, Volume2, Waves, Wind } from 'lucide-react'
+import { CloudRain, Coffee, Download, Droplets, Flame, Headphones, LoaderCircle, Moon, Pause, Play, Plus, SkipBack, SkipForward, Sparkles, TrainFront, Trees, Volume2, Waves, Wind } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Slider } from '../components/ui/slider'
 import { whiteNoiseCatalog, defaultWhiteNoiseId } from '../resources/whiteNoiseCatalog'
@@ -198,7 +198,7 @@ export function WhiteNoisePage({ onNowPlayingChange }: { onNowPlayingChange: (it
   return <section className="page white-noise-page">
     <audio ref={audioRef} loop preload="metadata" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || selected.duration)} onError={() => { setPlaying(false); setError(window.sylunae ? '音频文件无法读取，请检查资源是否完整。' : '流式音频无法播放，请检查资源地址和跨域设置。') }} />
 
-    <header className="page-header"><div><span className="eyebrow">AMBIENCE</span><h1>白噪音</h1><p>留一点自然的声音，让此刻慢下来</p></div><div className="white-noise-header-actions"><Button variant="outline" className="button secondary" onClick={() => void importAudio()} disabled={Boolean(busyId)}><Plus />{busyId === 'import' ? '正在添加…' : '添加白噪音'}</Button><button className="white-noise-timer" type="button" title="定时功能即将开放"><Timer size={16} /><span>定时关闭</span><small>即将开放</small></button></div></header>
+    <header className="page-header"><div><span className="eyebrow">AMBIENCE</span><h1>白噪音</h1><p>留一点自然的声音，让此刻慢下来</p></div><div className="white-noise-header-actions"><Button variant="outline" className="button secondary" onClick={() => void importAudio()} disabled={Boolean(busyId)}><Plus />{busyId === 'import' ? '正在添加…' : '添加白噪音'}</Button></div></header>
 
     <div className={`white-noise-hero ${selected.origin === 'custom' ? 'private-media-background' : ''} ${playing ? 'is-playing' : ''}`}>
       {selected.coverPath && <img className={`white-noise-hero-background ${selected.origin === 'custom' ? 'private-media' : ''}`} src={selected.coverPath} alt="" aria-hidden />}

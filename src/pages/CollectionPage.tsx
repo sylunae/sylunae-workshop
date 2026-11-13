@@ -1,27 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
-import { BookOpen, Images, Rss, Sparkles } from 'lucide-react'
+import { useEffect, useRef } from 'react'
+import { BookOpen, Images } from 'lucide-react'
 import { LibraryPage } from './LibraryPage'
 import { ImageGalleryPage } from './ImageGalleryPage'
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs'
-import { usePersistentState } from '../lib/usePersistentState'
+import type { WorkspaceView } from '../app/workspaceRoutes'
 
-type CollectionView = 'bangumi' | 'images' | 'rss'
+type CollectionView = WorkspaceView<'collection'>
 
-export function CollectionPage({ view, onViewChange }: { view?: CollectionView; onViewChange?: (view: CollectionView) => void }) {
-  const [storedView, setStoredView] = usePersistentState<CollectionView>('navigation.collectionView', 'bangumi')
-  const activeView = view ?? storedView
-  const setView = onViewChange ?? setStoredView
+export function CollectionPage({ view, onViewChange }: { view: CollectionView; onViewChange: (view: CollectionView) => void }) {
   const pageRef = useRef<HTMLElement>(null)
-  useEffect(() => { pageRef.current?.scrollTo({ top: 0 }) }, [activeView])
+  useEffect(() => { pageRef.current?.scrollTo({ top: 0 }) }, [view])
   return <section ref={pageRef} className="page collection-hub-page">
-    <header className="page-header"><div><span className="eyebrow">COLLECTION</span><h1>收藏馆</h1><p>收拢喜欢的作品、画面与持续关注的内容</p></div></header>
-    <Tabs value={activeView} onValueChange={(value) => setView(value as CollectionView)} className="workspace-tabs">
-      <TabsList className="workspace-tab-list"><TabsTrigger value="bangumi"><BookOpen size={16} />Bangumi</TabsTrigger><TabsTrigger value="images"><Images size={16} />精选图片</TabsTrigger><TabsTrigger value="rss"><Rss size={16} />RSS 订阅<span className="soon-badge">即将推出</span></TabsTrigger></TabsList>
+    <header className="page-header"><div><span className="eyebrow">COLLECTION</span><h1>收藏馆</h1><p>收录喜欢的作品与精选图片</p></div></header>
+    <Tabs value={view} onValueChange={(value) => onViewChange(value as CollectionView)} className="workspace-tabs">
+      <TabsList className="workspace-tab-list"><TabsTrigger value="bangumi"><BookOpen size={16} />Bangumi</TabsTrigger><TabsTrigger value="images"><Images size={16} />精选图片</TabsTrigger></TabsList>
     </Tabs>
-    {activeView === 'bangumi' ? <LibraryPage embedded /> : activeView === 'images' ? <ImageGalleryPage /> : <CollectionPlaceholder />}
+    {view === 'bangumi' ? <LibraryPage embedded /> : <ImageGalleryPage />}
   </section>
-}
-
-function CollectionPlaceholder() {
-  return <div className="collection-placeholder"><div className="placeholder-visual" aria-hidden><i /><i /><i /></div><div><span className="soon-badge large">即将推出</span><h2>RSS 订阅</h2><p>订阅喜欢的站点与作者，在一个安静的阅读空间里跟进新内容。</p><div className="placeholder-note"><Sparkles size={16} />入口已经为它留好位置，功能会在后续版本中开放。</div></div></div>
 }

@@ -22,7 +22,7 @@ pnpm run open:android   # 使用 Android Studio 打开工程
 pnpm run test:android   # 已连接手机/已启动模拟器时执行原生测试
 
 # 新版本
-$env:ORG_GRADLE_PROJECT_workshopVersionName = '0.1.7'
+$env:ORG_GRADLE_PROJECT_workshopVersionName = '0.1.8'
 $env:ORG_GRADLE_PROJECT_workshopVersionCode = '1007'
 pnpm run package:android
 ```

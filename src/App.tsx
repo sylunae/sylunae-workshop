@@ -185,7 +185,7 @@ export default function App() {
         navigate(tool, intent === 'white-noise' ? intent : musicView)
         break
       case 'collection':
-        navigate(tool, intent === 'images' || intent === 'rss' ? intent : collectionView)
+        navigate(tool, intent === 'images' ? intent : collectionView)
         break
       case 'tools':
         navigate(tool, intent === 'clipboard' ? intent : utilityView)

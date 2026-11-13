@@ -52,16 +52,27 @@ describe('backup format', () => {
 
   it('preserves seven ordered homepage shortcuts in full and homepage backups', () => {
     const snapshot = createDefaultSnapshot()
-    const shortcuts = ['images', 'countdown', 'new-note', 'white-noise', 'clipboard', 'goals', 'rss'] as const
+    const shortcuts = ['images', 'countdown', 'new-note', 'white-noise', 'clipboard', 'goals', 'notes'] as const
     snapshot.settings.homeQuickActions = [...shortcuts]
 
     expect(parseBackup(JSON.stringify(createBackup(snapshot))).snapshot.settings.homeQuickActions).toEqual(shortcuts)
     const partial = parsePartialBackup(JSON.stringify(createPartialBackup(snapshot, 'home')))
     expect(applyPartialBackup(createDefaultSnapshot(), partial).settings.homeQuickActions).toEqual(shortcuts)
 
-    snapshot.settings.homeQuickActions.push('notes')
+    snapshot.settings.homeQuickActions.push('music')
     expect(() => parseBackup(JSON.stringify(createBackup(snapshot)))).toThrow()
     expect(() => parsePartialBackup(JSON.stringify(createPartialBackup(snapshot, 'home')))).toThrow()
+  })
+
+  it('drops the retired RSS shortcut when importing full and homepage backups', () => {
+    const snapshot = createDefaultSnapshot()
+    snapshot.settings.homeQuickActions = ['images', 'goals']
+    const addLegacyShortcut = (json: string) => json.replace('["images","goals"]', '["images","rss","goals"]')
+
+    const full = parseBackup(addLegacyShortcut(JSON.stringify(createBackup(snapshot))))
+    expect(full.snapshot.settings.homeQuickActions).toEqual(['images', 'goals'])
+    const partial = parsePartialBackup(addLegacyShortcut(JSON.stringify(createPartialBackup(snapshot, 'home'))))
+    expect(applyPartialBackup(createDefaultSnapshot(), partial).settings.homeQuickActions).toEqual(['images', 'goals'])
   })
 
   it('migrates legacy countdown fields while importing a backup', () => {

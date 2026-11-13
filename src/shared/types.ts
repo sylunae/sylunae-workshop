@@ -5,7 +5,7 @@ import type { HomeQuickActionId } from './homeQuickActions'
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type WorkspaceToolId = 'tasks' | 'notes' | 'music' | 'collection' | 'tools'
 export type ToolId = 'home' | WorkspaceToolId | 'settings'
-export type HomeIntent = 'new-note' | 'todos' | 'pomodoro' | 'goals' | 'countdown' | 'white-noise' | 'images' | 'rss' | 'clipboard'
+export type HomeIntent = 'new-note' | 'todos' | 'pomodoro' | 'goals' | 'countdown' | 'white-noise' | 'images' | 'clipboard'
 
 export interface ThemePalette {
   bg: string

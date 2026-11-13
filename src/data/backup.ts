@@ -12,7 +12,7 @@ const weatherLocationSchema = z.object({ name: z.string(), country: z.string(), 
 const defaultWeatherLocation = { name: '吉隆坡', country: '马来西亚', admin1: '', latitude: 3.139, longitude: 101.6869, timezone: 'Asia/Kuala_Lumpur' }
 const weatherSnapshotSchema = z.object({ location: weatherLocationSchema, temperature: z.number(), apparent: z.number(), code: z.number(), daily: z.array(z.object({ minimum: z.number(), maximum: z.number(), code: z.number() })), fetchedAt: timestamp })
 const homeWallpaperSchema = z.object({ id: z.string(), image: z.string(), title: z.string(), description: z.string() })
-const homeQuickActionsSchema = z.array(z.enum(homeQuickActionIds)).max(maxHomeQuickActions).transform((ids) => normalizeHomeQuickActions(ids))
+const homeQuickActionsSchema = z.array(z.enum([...homeQuickActionIds, 'rss'])).max(maxHomeQuickActions).transform((ids) => normalizeHomeQuickActions(ids))
 const deskCompanionSchema = z.object({
   enabled: z.boolean(), scale: z.number(), dialogueMode: z.enum(['sequential', 'random']), activeCharacterId: z.string(),
   characters: z.array(z.object({

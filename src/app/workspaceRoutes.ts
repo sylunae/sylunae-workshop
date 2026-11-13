@@ -2,7 +2,7 @@ export const workspacePaths = {
   home: { home: '/' },
   notes: { home: '/notes' },
   tasks: { goals: '/tasks/goals', todos: '/tasks/todos', pomodoro: '/tasks/pomodoro', countdown: '/tasks/countdown' },
-  collection: { bangumi: '/collection/bangumi', images: '/collection/images', rss: '/collection/rss' },
+  collection: { bangumi: '/collection/bangumi', images: '/collection/images' },
   music: { tracks: '/music/tracks', albums: '/music/albums', 'white-noise': '/music/white-noise' },
   tools: {
     home: '/tools',
@@ -36,7 +36,8 @@ export function readWorkspaceRoute(hash: string): WorkspaceRoute | undefined {
   if (!hash.startsWith('#/')) return undefined
   try {
     const path = decodeURIComponent(hash.slice(1))
-    return routesByPath.get(path.replace(/\/$/, '') || '/')
+    const normalizedPath = path.replace(/\/$/, '') || '/'
+    return routesByPath.get(normalizedPath === '/collection/rss' ? workspacePaths.collection.bangumi : normalizedPath)
   } catch {
     return undefined
   }
