@@ -27,5 +27,8 @@ describe('virtual notebook list', () => {
     expect(viewport.scrollTop).toBe(0)
     expect(viewport.querySelectorAll('button')).toHaveLength(1)
     expect(viewport.textContent).toContain('Note 42')
+    rerender(<VirtualNoteList notes={notes} selectedId="500" revealId="500" onSelect={onSelect} resetKey="all" />)
+    expect(viewport.scrollTop).toBe(500 * 112)
+    expect(viewport.querySelector('[aria-current="true"]')?.textContent).toContain('Note 500')
   })
 })
