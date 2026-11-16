@@ -372,34 +372,52 @@ export function MusicPage({ view: controlledView, onViewChange, onNowPlayingChan
   if (!window.sylunae) return <section className="page"><header className="page-header"><div><span className="eyebrow">MUSIC</span><h1>音乐</h1><p>属于你的安静播放器</p></div><Button className="button secondary" onClick={onOpenWhiteNoise}><CloudRain size={17} />白噪音<ArrowRight size={15} /></Button></header><EmptyState icon={<Music2 size={27} />} title="客户端专属" description="请使用支持本地音乐库的丝月工坊客户端建立你的音乐资料库。" /></section>
 
   return <section className="page music-page">
-    <header className="page-header"><div><span className="eyebrow">MUSIC</span><h1>音乐</h1><p>{tracks.length ? `${tracks.length} 首本地音乐` : '让喜欢的声音留在手边'}</p></div><div className="music-header-actions"><Button className="button secondary" onClick={onOpenWhiteNoise}><CloudRain size={17} />白噪音<ArrowRight size={15} /></Button>{window.sylunae.music.resolveYoutubeAudio && <Button className="button secondary" onClick={() => setOnlineOpen(true)}><Link2 size={17} />在线音乐</Button>}<Button className="button primary" onClick={() => setImportOpen(true)}><Plus size={17} />添加音乐</Button></div></header>
+    <header className="page-header">
+      <div className="music-heading-copy">
+        <span className="eyebrow">MUSIC</span>
+        <h1>音乐</h1>
+        <p>{tracks.length ? `${tracks.length} 首本地音乐` : '让喜欢的声音留在手边'}</p>
+      </div>
+      <div className="music-header-actions">
+        <Button className="button secondary" onClick={onOpenWhiteNoise}><CloudRain size={17} />白噪音<ArrowRight className="music-header-arrow" size={15} /></Button>
+        {window.sylunae.music.resolveYoutubeAudio && <Button className="button secondary music-online-action" onClick={() => setOnlineOpen(true)}><Link2 size={17} />在线音乐</Button>}
+        <Button className="button primary" onClick={() => setImportOpen(true)}><Plus size={17} />添加音乐</Button>
+      </div>
+    </header>
     <div
       className={`music-hero ${playing && currentCover ? 'is-playing' : ''}`}
       style={{ '--music-hero-cover': currentCover ? `url(${JSON.stringify(currentCover)})` : 'none' } as CSSProperties}
     >
-      <div className="hero-art">{currentCover ? <img src={currentCover} alt="" /> : <Disc3 size={48} strokeWidth={1.2} />}</div>
-      <div className="hero-copy"><span>正在播放</span><h2 className={current ? 'private-music-title' : undefined}>{current?.title || '还没有选择音乐'}</h2><p className={current ? 'user-content' : undefined}>{current ? `${current.artist} · ${current.album}` : '从资料库中选择一首，给此刻一点声音。'}</p></div>
-      {current && audioUrl && !isAndroid ? <AudioWaveform media={audio.current} src={audioUrl} /> : <div className="audio-waveform-placeholder" aria-hidden><span /></div>}
+      <div className="hero-art" data-playing={Boolean(current && playing)} aria-hidden="true">
+        <div className="hero-record">
+          {currentCover ? <img src={currentCover} alt="" /> : <Music2 strokeWidth={1.7} />}
+        </div>
+        <span className="hero-tonearm" />
+      </div>
+      <div className="music-hero-content">
+        <div className="hero-copy"><span>正在播放</span><h2 className={current ? 'private-music-title' : undefined}>{current?.title || '还没有选择音乐'}</h2><p className={current ? 'user-content' : undefined}>{current ? `${current.artist} · ${current.album}` : '从资料库中选择一首，给此刻一点声音。'}</p></div>
+        {current && audioUrl && !isAndroid ? <AudioWaveform media={audio.current} src={audioUrl} /> : <div className="audio-waveform-placeholder" aria-hidden><span /></div>}
+      </div>
     </div>
-    <div className="toolbar music-library-toolbar">
+    <div className="toolbar music-library-toolbar" data-selecting={view === 'tracks' && selectingTracks}>
       <Tabs value={view} onValueChange={(value) => { const nextView = value as 'tracks' | 'albums'; setView(nextView); if (nextView === 'albums') { setSelectedTrackIds(new Set()); setSelectingTracks(false) } }}><TabsList variant="line" aria-label="音乐资料库视图"><TabsTrigger value="tracks"><Music2 />歌曲 <span>{tracks.length}</span></TabsTrigger><TabsTrigger value="albums"><Album />专辑 <span>{albums.length}</span></TabsTrigger></TabsList></Tabs>
-      <label className="search-box"><Search size={17} /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={view === 'tracks' ? '搜索歌曲、艺术家或专辑' : '搜索专辑或艺术家'} /></label>
-      {view === 'tracks' && <div className="music-selection-actions">
-        {selectingTracks ? <>
+      <label className="search-box"><Search size={17} /><Input aria-label="搜索音乐资料库" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={view === 'tracks' ? '搜索歌曲、艺人或专辑' : '搜索专辑或艺人'} /></label>
+      <div className="music-selection-actions">
+        {view === 'albums' ? <Button variant="outline" size="lg" onClick={() => { setCreateAlbumError(''); setCreateAlbumOpen(true) }}><Plus size={15} />新建专辑</Button> :
+        selectingTracks ? <>
           <span>{selectedTrackIds.size ? `已选 ${selectedTrackIds.size} 首` : '选择歌曲'}</span>
           <Button variant="outline" size="sm" disabled={!selectedTrackIds.size || albums.length === 0} onClick={() => { setAssignAlbumId(albums[0]?.id ?? ''); setAssignAlbumOpen(true) }}><Album size={15} />加入专辑</Button>
           <Button variant="destructive" size="sm" disabled={!selectedTrackIds.size} onClick={() => setRemoveSelectedOpen(true)}><Trash2 size={15} />移除所选</Button>
           <Button variant="ghost" size="sm" onClick={() => { setSelectedTrackIds(new Set()); setSelectingTracks(false) }}><X size={15} />取消</Button>
         </> : <Button variant="outline" size="lg" onClick={() => setSelectingTracks(true)}><CheckSquare2 size={15} />批量选择</Button>}
-      </div>}
-      {view === 'albums' && <Button variant="outline" size="lg" onClick={() => { setCreateAlbumError(''); setCreateAlbumOpen(true) }}><Plus size={15} />新建专辑</Button>}
+      </div>
     </div>
     {playerError && <div className="notice error">{playerError}</div>}
     {tracks.length === 0 ? <EmptyState icon={<FileMusic size={26} />} title="资料库还是空的" description={isAndroid ? "将电脑上的音乐传到手机后，在这里批量导入。文件保存在应用私有目录，支持离线与后台播放。" : "可以索引电脑中的音频，也可以从 YouTube 或音频链接下载到本地。"} action={<Button className="button primary" onClick={() => setImportOpen(true)}><Plus size={16} />添加第一首音乐</Button>} /> :
-      view === 'tracks' ? <div className="track-table"><div className="track-head"><span>{selectingTracks ? <Checkbox aria-label="选择当前筛选的全部歌曲" checked={allFilteredSelected ? true : selectedFilteredCount > 0 ? 'indeterminate' : false} onCheckedChange={toggleFilteredTrackSelection} /> : '#'}</span><span>歌曲</span><span>专辑</span><span>时长</span><span /></div>{filtered.map((track, index) => <div key={track.id} className={`track-row ${currentId === track.id ? 'active' : ''} ${track.missing ? 'missing' : ''} ${selectedTrackIds.has(track.id) ? 'selected' : ''}`} onDoubleClick={() => void playTrack(track)}>
+      view === 'tracks' ? <div className="track-table" data-selecting={selectingTracks}><div className="track-head"><span className="track-select-cell">{selectingTracks ? <Checkbox aria-label="选择当前筛选的全部歌曲" checked={allFilteredSelected ? true : selectedFilteredCount > 0 ? 'indeterminate' : false} onCheckedChange={toggleFilteredTrackSelection} /> : '#'}</span><span>歌曲</span><span className="track-album">专辑</span><span className="track-duration">时长</span><span className="track-head-actions" /></div>{filtered.map((track, index) => <div key={track.id} className={`track-row ${currentId === track.id ? 'active' : ''} ${track.missing ? 'missing' : ''} ${selectedTrackIds.has(track.id) ? 'selected' : ''}`} onDoubleClick={() => void playTrack(track)}>
         {selectingTracks ? <span className="track-select-cell"><Checkbox aria-label={`选择 ${track.title}`} checked={selectedTrackIds.has(track.id)} onCheckedChange={() => toggleTrackSelection(track.id)} /></span> : <button className="track-play" disabled={track.missing} onClick={() => currentId === track.id ? togglePlay() : void playTrack(track)}>{currentId === track.id && playing ? <Pause size={15} /> : <span>{index + 1}</span>}</button>}
         <div className="track-title"><div className="tiny-cover">{trackCover(track, albums, tracks) ? <img src={trackCover(track, albums, tracks)} alt="" /> : <Music2 size={15} />}</div><div><strong className="private-music-title">{track.title}</strong><span className={track.missing ? undefined : 'private-music-artist'}>{track.missing ? '文件已移动或删除' : track.artist}</span></div></div>
-        {(() => { const album = track.albumId ? albums.find((item) => item.id === track.albumId) : undefined; return album ? <button type="button" className="track-album track-album-link private-music-album" onClick={() => setAlbumTarget(album)}>{track.album}</button> : <span className="track-album private-music-album">{track.album}</span> })()}<span>{formatDuration(track.duration)}</span>
+        {(() => { const album = track.albumId ? albums.find((item) => item.id === track.albumId) : undefined; return album ? <button type="button" className="track-album track-album-link private-music-album" onClick={() => setAlbumTarget(album)}>{track.album}</button> : <span className="track-album private-music-album">{track.album}</span> })()}<span className="track-duration">{formatDuration(track.duration)}</span>
         <div className="track-actions">{isAndroid ? <DropdownMenu><DropdownMenuTrigger asChild><button type="button" aria-label={`更多歌曲操作：${track.title}`}><MoreHorizontal size={20} /></button></DropdownMenuTrigger><DropdownMenuContent align="end">
           {track.missing && <DropdownMenuItem onSelect={() => void relocate(track).catch(() => setPlayerError('无法重新关联音频文件'))}><LocateFixed />重新定位</DropdownMenuItem>}
           <DropdownMenuItem disabled={track.missing} onSelect={() => void window.sylunae?.music.showInFolder(track.path).catch(() => setPlayerError('音频导出失败，请重试'))}><FolderOpen />导出音频文件</DropdownMenuItem>

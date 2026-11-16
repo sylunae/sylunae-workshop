@@ -67,7 +67,7 @@ export function AudioWaveform({ media, src }: AudioWaveformProps) {
     const instance = WaveSurfer.create({
       container: container.current,
       media,
-      height: 64,
+      height: 'auto',
       cursorWidth: 1,
       dragToSeek: true,
       fillParent: true,
