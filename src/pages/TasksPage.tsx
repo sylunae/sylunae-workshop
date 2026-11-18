@@ -4,6 +4,7 @@ import { CalendarClock, CalendarDays, CakeSlice, Check, ChevronDown, Circle, Clo
 import { useAppStore } from '../app/AppStore'
 import type { CountdownAccent, CountdownCategory, CountdownEvent, CountdownMode, CountdownRepeat, PomodoroMode, QuickTodo, RecurringTodo, RecurringTodoFrequency, TodoPriority } from '../shared/types'
 import { newId, nowIso } from '../utils'
+import { createQuickTodo } from '../todos/createQuickTodo'
 import { countdownResult, preciseCountdownParts, type CountdownResult } from '../countdowns/countdown'
 import { localDateKey, occursOnDate, recurringLabel } from '../todos/recurring'
 import { compareQuickTodos, compareTodoPriority, nextTodoPriority, todoPriorityLabel } from '../todos/priority'
@@ -87,8 +88,7 @@ function TodoPanel() {
   const add = () => {
     const title = draft.trim()
     if (!title) return
-    const now = nowIso()
-    const todo: QuickTodo = { id: newId(), title, priority: 'medium', dueDate: '', completed: false, completedAt: null, createdAt: now, updatedAt: now }
+    const todo = createQuickTodo(title)
     update((state) => ({ ...state, todos: [todo, ...state.todos] }))
     setDraft('')
   }

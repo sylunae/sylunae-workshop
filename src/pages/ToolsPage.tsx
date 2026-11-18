@@ -57,40 +57,53 @@ type ClipboardSort = "recent" | "frequent";
 
 const tempoAnalyzerUrl = "https://tuanziai.com/audio-tools/tempo-analyze";
 
+const toolCategories = ["文本与语言", "日常助手", "媒体与文件"] as const;
+
 const toolCards = [
-  { id: "translation" as const, title: "翻译", description: "自动识别语言，翻译并保存常用译文。", icon: Languages, accent: "blue" },
-  { id: "music-toolbox" as const, title: "音乐工具箱", description: "在工坊内使用团子 AI 的节拍分析与校准工具。", icon: Music, accent: "blue" },
-  { id: "conversion" as const, title: "格式转换", description: "识别图片、视频、音频与文档格式，批量转换或提取音轨。", icon: ArrowLeftRight, accent: "blue" },
-  { id: "birthdays" as const, title: "生日通知", description: "记住重要的日子，提前送来生日提醒与祝福。", icon: Cake, accent: "rose" },
+  { id: "translation", category: "文本与语言", title: "翻译", description: "自动识别语言，翻译并保存常用译文。", icon: Languages, accent: "blue" },
+  { id: "music-toolbox", category: "媒体与文件", title: "音乐工具箱", description: "在工坊内使用团子 AI 的节拍分析与校准工具。", icon: Music, accent: "blue" },
+  { id: "conversion", category: "媒体与文件", title: "格式转换", description: "识别图片、视频、音频与文档格式，批量转换或提取音轨。", icon: ArrowLeftRight, accent: "blue" },
+  { id: "birthdays", category: "日常助手", title: "生日通知", description: "记住重要的日子，提前送来生日提醒与祝福。", icon: Cake, accent: "rose" },
   {
-    id: "clipboard" as const,
+    id: "clipboard",
+    category: "文本与语言",
     title: "剪贴板",
     description: "保存常用文本、代码、颜文字和 Prompt，需要时一键复制。",
     icon: Clipboard,
     accent: "lilac",
   },
   {
-    id: "launcher" as const,
+    id: "launcher",
+    category: "日常助手",
     title: "链接启动器",
     description: "集中常用网站和页面，让重要链接不再散落各处。",
     icon: Link2,
     accent: "blue",
   },
   {
-    id: "image" as const,
+    id: "image",
+    category: "媒体与文件",
     title: "图片处理",
     description: "裁剪、旋转图片，批量转换格式与压缩。",
     icon: FileImage,
     accent: "green",
   },
   {
-    id: "audio" as const,
+    id: "audio",
+    category: "媒体与文件",
     title: "音频剪辑器",
     description: "裁剪音频片段，调整音量与淡入淡出，并在本地导出 WAV。",
     icon: AudioLines,
     accent: "rose",
   },
-];
+] satisfies {
+  id: Exclude<ToolView, "home">;
+  category: (typeof toolCategories)[number];
+  title: string;
+  description: string;
+  icon: typeof Music;
+  accent: string;
+}[];
 
 export function ToolsPage({
   view,
@@ -134,27 +147,29 @@ export function ToolsPage({
         )}
       </header>
       {view === "home" && (
-        <>
-          <div className="tool-card-grid">
-            {toolCards.map(({ id, title, description, icon: Icon, accent }) => (
-              <WorkspaceLink
-                key={id}
-                className="tool-entry-card"
-                href={workspaceHref("tools", id)}
-                onNavigate={() => onViewChange(id)}
-              >
-                <span className={`tool-entry-icon ${accent}`}>
-                  <Icon size={23} />
-                </span>
-                <strong>{title}</strong>
-                <p>{description}</p>
-                <span className="tool-entry-action">
-                  打开工具 <span>→</span>
-                </span>
-              </WorkspaceLink>
-            ))}
-          </div>
-        </>
+        <div className="tool-categories">
+          {toolCategories.map((category) => (
+            <section key={category} className="tool-category">
+              <h2>{category}</h2>
+              <div className="tool-card-grid">
+                {toolCards.filter((tool) => tool.category === category).map(({ id, title, description, icon: Icon, accent }) => (
+                  <WorkspaceLink
+                    key={id}
+                    className="tool-entry-card"
+                    href={workspaceHref("tools", id)}
+                    onNavigate={() => onViewChange(id)}
+                  >
+                    <span className={`tool-entry-icon ${accent}`}>
+                      <Icon size={23} />
+                    </span>
+                    <strong>{title}</strong>
+                    <p>{description}</p>
+                  </WorkspaceLink>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       )}
       {view === "clipboard" && <ClipboardTool />}
       {view === "translation" && <TranslationTool />}

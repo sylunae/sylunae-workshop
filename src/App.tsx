@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { Clock3 } from 'lucide-react'
 import { BirthdayNotifications } from './components/BirthdayNotifications'
 import { Sidebar } from './components/Sidebar'
@@ -7,6 +7,8 @@ import { DeskCompanion } from './components/DeskCompanion'
 import { DesktopUpdate } from './components/DesktopUpdate'
 import { HomeWallpaperBackdrop, useHomeWallpaper } from './components/HomeWallpaperBackdrop'
 import { Spinner } from './components/Icons'
+import { PromptDialog } from './components/PromptDialog'
+import { createQuickTodo } from './todos/createQuickTodo'
 import { useAppStore } from './app/AppStore'
 import type { HomeIntent, MusicTrack, PomodoroMode, ResourceItem, ToolId, WorkspaceToolId } from './shared/types'
 import { accessibleForeground, themeColorFields, themeCssVariables, themeDerivedCssVariables } from './shared/theme'
@@ -40,6 +42,8 @@ function pomodoroDuration(timer: { mode: PomodoroMode; focusMinutes: number; sho
 export default function App() {
   const { snapshot, loading, saving, error, update } = useAppStore()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [quickTodoOpen, setQuickTodoOpen] = useState(false)
+  const quickTodoReturnFocus = useRef<HTMLElement | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsMounted, setSettingsMounted] = useState(false)
   const [funFeaturesOpen, setFunFeaturesOpen] = useState(false)
@@ -53,6 +57,24 @@ export default function App() {
   const visibleTool = activeTool === 'settings' ? 'home' : activeTool
   const isHome = visibleTool === 'home'
   const wallpaper = useHomeWallpaper(snapshot?.settings.homeWallpapers, !isHome || wallpaperSettingsOpen)
+  const ready = !loading && Boolean(snapshot)
+  const openQuickTodo = useCallback(() => {
+    quickTodoReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setQuickTodoOpen(true)
+  }, [])
+
+  useEffect(() => {
+    if (!ready || quickTodoOpen) return
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || event.isComposing || event.altKey || event.shiftKey) return
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'k') return
+      if (document.querySelector(':is([role="dialog"], [role="alertdialog"])[data-state="open"]')) return
+      event.preventDefault()
+      openQuickTodo()
+    }
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [ready, quickTodoOpen, openQuickTodo])
 
   useEffect(() => {
     if (!isAndroid) return
@@ -245,7 +267,7 @@ export default function App() {
 
   return <BirthdayNotifications><TooltipProvider><div className={`app-shell${isHome ? ' app-shell-home' : ''}`} style={{ '--sidebar-width': `${renderedSidebarWidth}px`, '--wallpaper-image': wallpaper.backgroundImage } as CSSProperties}>
     <HomeWallpaperBackdrop {...wallpaper} />
-    <Sidebar active={activeTool} taskView={taskView} collectionView={collectionView} musicSection={musicSection} musicView={musicView} collapsed={snapshot.settings.sidebarCollapsed} width={renderedSidebarWidth} mobileOpen={mobileOpen} settingsOpen={settingsOpen} funFeaturesOpen={funFeaturesOpen} nowPlaying={nowPlaying} nowPlayingAmbient={nowPlayingAmbient} onSelect={selectTool} onSelectTaskView={(view) => selectView('tasks', view)} onSelectCollectionView={(view) => selectView('collection', view)} onSelectMusicSection={(section) => selectView('music', section === 'library' ? musicView : section)} onSelectMusicView={(view) => selectView('music', view)} onOpenSettings={openSettings} onOpenFunFeatures={openFunFeatures} onResize={resizeSidebar} onOpen={() => setMobileOpen(true)} onClose={() => setMobileOpen(false)} />
+    <Sidebar active={activeTool} taskView={taskView} collectionView={collectionView} musicSection={musicSection} musicView={musicView} collapsed={snapshot.settings.sidebarCollapsed} width={renderedSidebarWidth} mobileOpen={mobileOpen} settingsOpen={settingsOpen} funFeaturesOpen={funFeaturesOpen} nowPlaying={nowPlaying} nowPlayingAmbient={nowPlayingAmbient} onSelect={selectTool} onSelectTaskView={(view) => selectView('tasks', view)} onSelectCollectionView={(view) => selectView('collection', view)} onSelectMusicSection={(section) => selectView('music', section === 'library' ? musicView : section)} onSelectMusicView={(view) => selectView('music', view)} onOpenSettings={openSettings} onOpenFunFeatures={openFunFeatures} onOpenQuickTodo={openQuickTodo} onResize={resizeSidebar} onOpen={() => setMobileOpen(true)} onClose={() => setMobileOpen(false)} />
     {isElectron() && <div className={`app-titlebar ${pageScrolled ? 'scrolled' : ''} ${snapshot.pomodoro.running ? 'pomodoro-running' : ''}`}>
       <div className="app-titlebar-drag" />
       <DesktopUpdate titlebar />
@@ -273,5 +295,22 @@ export default function App() {
     <Suspense fallback={null}>{settingsMounted && <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />}</Suspense>
     <DeskCompanion settings={snapshot.settings.deskCompanion} />
     <FunFeaturesDialog open={funFeaturesOpen} onOpenChange={setFunFeaturesOpen} />
+    <PromptDialog
+      open={quickTodoOpen}
+      onOpenChange={setQuickTodoOpen}
+      title="添加待办"
+      description="保存到任务箱的快速待办。"
+      placeholder="要做什么？"
+      confirmLabel="保存"
+      onSubmit={(title) => {
+        const todo = createQuickTodo(title)
+        update((state) => ({ ...state, todos: [todo, ...state.todos] }))
+      }}
+      onCloseAutoFocus={(event) => {
+        event.preventDefault()
+        quickTodoReturnFocus.current?.focus()
+        quickTodoReturnFocus.current = null
+      }}
+    />
   </div></TooltipProvider></BirthdayNotifications>
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
-import { Album, BookHeart, BookOpen, Boxes, CalendarClock, ChevronDown, ChevronRight, CloudRain, Download, Images, Library, ListChecks, ListTodo, Menu, MoreHorizontal, Music2, NotebookPen, Settings, Smile, Sparkles, Sticker, Target } from 'lucide-react'
+import { Album, BookHeart, BookOpen, Boxes, CalendarClock, ChevronDown, ChevronRight, CloudRain, Download, Images, Library, ListChecks, ListTodo, Menu, MoreHorizontal, Music2, NotebookPen, Plus, Settings, Smile, Sparkles, Sticker, Target } from 'lucide-react'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { workspaceHref, type WorkspaceView } from '../app/workspaceRoutes'
 import { WorkspaceLink } from './WorkspaceLink'
@@ -68,7 +68,7 @@ function downloadAndroidApp() {
     .then((url) => openExternal(url, '_self'))
 }
 
-export function Sidebar({ active, taskView, collectionView, musicSection, musicView, collapsed, width, mobileOpen, settingsOpen, funFeaturesOpen, nowPlaying, nowPlayingAmbient, onSelect, onSelectTaskView, onSelectCollectionView, onSelectMusicSection, onSelectMusicView, onOpenSettings, onOpenFunFeatures, onResize, onOpen, onClose }: {
+export function Sidebar({ active, taskView, collectionView, musicSection, musicView, collapsed, width, mobileOpen, settingsOpen, funFeaturesOpen, nowPlaying, nowPlayingAmbient, onSelect, onSelectTaskView, onSelectCollectionView, onSelectMusicSection, onSelectMusicView, onOpenSettings, onOpenFunFeatures, onOpenQuickTodo, onResize, onOpen, onClose }: {
   active: ToolId
   taskView: 'goals' | 'todos' | 'pomodoro' | 'countdown'
   collectionView: WorkspaceView<'collection'>
@@ -87,6 +87,7 @@ export function Sidebar({ active, taskView, collectionView, musicSection, musicV
   onSelectMusicSection: (section: 'library' | 'white-noise') => void
   onSelectMusicView: (view: 'tracks' | 'albums') => void
   onOpenSettings: () => void
+  onOpenQuickTodo: () => void
   onOpenFunFeatures: () => void
   onResize: (width: number) => void
   onOpen: () => void
@@ -131,6 +132,7 @@ export function Sidebar({ active, taskView, collectionView, musicSection, musicV
   useEffect(() => () => document.body.classList.remove('sidebar-resizing'), [])
   return <>
     <button className="mobile-menu" onClick={openMobileMenu} aria-label="打开导航" aria-expanded={mobileOpen} aria-controls="app-sidebar"><Menu size={20} /></button>
+    {isMobile && <button type="button" className="mobile-menu mobile-quick-todo" onClick={onOpenQuickTodo} aria-label="添加待办" aria-haspopup="dialog"><Plus size={20} /></button>}
     <button className={`sidebar-backdrop${mobileOpen ? ' mobile-open' : ''}`} onClick={onClose} aria-label="关闭导航" inert={!mobileOpen} />
     <aside id="app-sidebar" className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
       <button className={`brand ${active === 'home' ? 'active' : ''}`} onClick={() => select('home')} title="返回主页" aria-label="返回主页">
@@ -155,6 +157,7 @@ export function Sidebar({ active, taskView, collectionView, musicSection, musicV
       </div>
       <nav>
         {!collapsed && <div className="nav-caption">工具</div>}
+        {!isMobile && <button type="button" onClick={onOpenQuickTodo} title="添加待办（Ctrl+K）" aria-label="添加待办" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K"><Plus size={19} strokeWidth={1.7} /><span>添加待办</span></button>}
         {tools.map(({ id, label, icon: Icon }) => {
           const current = active === id
           if (id !== 'tasks' && id !== 'collection' && id !== 'music') {

@@ -16,6 +16,7 @@ function renderSidebar(isMobile: boolean) {
     onSelectMusicSection: vi.fn(),
     onSelectMusicView: vi.fn(),
     onOpenSettings: vi.fn(),
+    onOpenQuickTodo: vi.fn(),
     onOpenFunFeatures: vi.fn(),
     onResize: vi.fn(),
     onOpen: vi.fn(),
@@ -32,6 +33,13 @@ function renderSidebar(isMobile: boolean) {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+})
+
+it.each([false, true])('添加待办入口打开输入框流程，保留当前页面（移动布局：%s）', (isMobile) => {
+  const actions = renderSidebar(isMobile)
+  fireEvent.click(screen.getByRole('button', { name: '添加待办' }))
+  expect(actions.onOpenQuickTodo).toHaveBeenCalledOnce()
+  expect(actions.onSelect).not.toHaveBeenCalled()
 })
 
 it.each([

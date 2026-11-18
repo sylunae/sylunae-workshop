@@ -3,7 +3,7 @@ import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog'
 import { Input } from './ui/input'
 
-export function PromptDialog({ open, title, description, initialValue = '', placeholder, confirmLabel = '确认', destructiveLabel, allowEmpty = false, validate, onSubmit, onDestructive, onOpenChange }: {
+export function PromptDialog({ open, title, description, initialValue = '', placeholder, confirmLabel = '确认', destructiveLabel, allowEmpty = false, validate, onSubmit, onDestructive, onOpenChange, onCloseAutoFocus }: {
   open: boolean
   title: string
   description?: string
@@ -16,6 +16,7 @@ export function PromptDialog({ open, title, description, initialValue = '', plac
   onSubmit: (value: string) => void
   onDestructive?: () => void
   onOpenChange: (open: boolean) => void
+  onCloseAutoFocus?: (event: Event) => void
 }) {
   const id = useId()
   const [value, setValue] = useState(initialValue)
@@ -35,13 +36,13 @@ export function PromptDialog({ open, title, description, initialValue = '', plac
   }
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="prompt-dialog">
+    <DialogContent className="prompt-dialog" onCloseAutoFocus={onCloseAutoFocus}>
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
         {description && <DialogDescription>{description}</DialogDescription>}
       </DialogHeader>
       <label htmlFor={id} className="sr-only">{title}</label>
-      <Input id={id} autoFocus value={value} onChange={(event) => { setValue(event.target.value); setError('') }} onKeyDown={(event) => { if (event.key === 'Enter') submit() }} placeholder={placeholder} aria-invalid={Boolean(error)} />
+      <Input id={id} autoFocus value={value} onChange={(event) => { setValue(event.target.value); setError('') }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229 && !event.repeat) submit() }} placeholder={placeholder} aria-invalid={Boolean(error)} />
       {error && <p className="prompt-error">{error}</p>}
       <DialogFooter>
         {destructiveLabel && onDestructive && <Button variant="destructive" className="prompt-dialog-delete" onClick={() => { onDestructive(); onOpenChange(false) }}>{destructiveLabel}</Button>}

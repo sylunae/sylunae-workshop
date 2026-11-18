@@ -488,7 +488,7 @@ export function ImageGalleryPage() {
       </aside>
 
       <section className="image-gallery-main">
-        <div className="image-library-stats"><div><ImageIcon size={20} /><span>已收藏<strong>{library.assets.length}</strong></span><ChevronRight size={16} /></div><div><Images size={20} /><span>收藏夹<strong>{library.collections.length}</strong></span></div><div><CalendarPlus size={20} /><span>本周新增<strong>{addedThisWeek}</strong></span></div>{library.roots.length > 0 && <Button variant="ghost" className="image-refresh" onClick={() => busy ? cancelScan() : void scan()}><RefreshCw className={busy ? 'spin' : ''} size={16} />{busy ? (cancelling ? '正在取消' : '取消扫描') : '刷新导入来源'}</Button>}</div>
+        {/* <div className="image-library-stats"><div><ImageIcon size={20} /><span>已收藏<strong>{library.assets.length}</strong></span><ChevronRight size={16} /></div><div><Images size={20} /><span>收藏夹<strong>{library.collections.length}</strong></span></div><div><CalendarPlus size={20} /><span>本周新增<strong>{addedThisWeek}</strong></span></div>{library.roots.length > 0 && <Button variant="ghost" className="image-refresh" onClick={() => busy ? cancelScan() : void scan()}><RefreshCw className={busy ? 'spin' : ''} size={16} />{busy ? (cancelling ? '正在取消' : '取消扫描') : '刷新导入来源'}</Button>}</div> */}
         {selectedIds.size > 0 && <div className="image-selection-toolbar">
           <div><CheckSquare2 size={17} /><strong>已选择 {selectedIds.size} 张</strong></div>
           <Button variant="ghost" size="sm" onClick={togglePageSelection}>{allPageSelected ? '取消本页全选' : '全选本页'}</Button>
