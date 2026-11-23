@@ -11,6 +11,18 @@ async function withDriveProgress<T>(channel: string, argument: string, listener:
 
 const api: SylunaeAPI = {
   platform: 'electron',
+  imageSearch: {
+    pickReference: () => ipcRenderer.invoke('image-search:pick-reference'),
+    pickFolder: () => ipcRenderer.invoke('image-search:pick-folder'),
+    search: async (options, onProgress) => {
+      const handler = (_event: Electron.IpcRendererEvent, progress: import('../../src/shared/imageSearch').ImageSearchProgress) => onProgress(progress)
+      ipcRenderer.on('image-search:progress', handler)
+      try { return await ipcRenderer.invoke('image-search:search', options) }
+      finally { ipcRenderer.removeListener('image-search:progress', handler) }
+    },
+    cancel: () => ipcRenderer.invoke('image-search:cancel'),
+    openResult: (path, reveal) => ipcRenderer.invoke('image-search:open-result', path, reveal),
+  },
   translation: {
     openWeb: (request) => ipcRenderer.invoke('translation:open-web', request),
     status: () => ipcRenderer.invoke('translation:status'),

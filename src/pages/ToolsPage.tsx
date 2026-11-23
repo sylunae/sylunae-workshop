@@ -51,6 +51,7 @@ import { AudioEditor } from "../components/AudioEditor";
 import { ImageProcessor } from "../components/ImageProcessor";
 import { FormatConverter } from "../components/FormatConverter";
 import { TranslationTool } from "../components/TranslationTool";
+import { ImageSearchTool } from "../components/ImageSearchTool";
 
 type ToolView = WorkspaceView<"tools">;
 type ClipboardSort = "recent" | "frequent";
@@ -60,6 +61,7 @@ const tempoAnalyzerUrl = "https://tuanziai.com/audio-tools/tempo-analyze";
 const toolCategories = ["文本与语言", "日常助手", "媒体与文件"] as const;
 
 const toolCards = [
+  { id: "image-search", category: "媒体与文件", title: "以图找图", description: "提供一张图片，在本地文件夹中查找像素相似的图片。", icon: Search, accent: "green" },
   { id: "translation", category: "文本与语言", title: "翻译", description: "自动识别语言，翻译并保存常用译文。", icon: Languages, accent: "blue" },
   { id: "music-toolbox", category: "媒体与文件", title: "音乐工具箱", description: "在工坊内使用团子 AI 的节拍分析与校准工具。", icon: Music, accent: "blue" },
   { id: "conversion", category: "媒体与文件", title: "格式转换", description: "识别图片、视频、音频与文档格式，批量转换或提取音轨。", icon: ArrowLeftRight, accent: "blue" },
@@ -175,6 +177,7 @@ export function ToolsPage({
       {view === "translation" && <TranslationTool />}
       {view === "launcher" && <LauncherTool />}
       {view === "image" && <ImageProcessor />}
+      {view === "image-search" && <ImageSearchTool />}
       {view === "audio" && <AudioEditor />}
       {showMusicToolbox && (
         isAndroid ? (

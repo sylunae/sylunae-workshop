@@ -10,6 +10,7 @@ export const workspacePaths = {
     translation: '/tools/translation',
     launcher: '/tools/launcher',
     image: '/tools/image',
+    'image-search': '/tools/image-search',
     audio: '/tools/audio',
     birthdays: '/tools/birthdays',
     conversion: '/tools/conversion',

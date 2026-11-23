@@ -628,6 +628,7 @@ export interface SylunaeAPI {
     onStatus: (listener: (status: AppUpdateStatus) => void) => () => void
   }
   platform: 'electron' | 'android'
+  imageSearch?: import('./imageSearch').ImageSearchAPI
   formatConversion: import('./conversion').FormatConversionAPI
   imageProcessing: {
     rememberImport: (file: File) => Promise<void>
